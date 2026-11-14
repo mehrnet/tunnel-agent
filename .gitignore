@@ -3,5 +3,6 @@
 /tunnel-api/.wrangler/
 /tunnel-api/node_modules/
 /tunnel-files/static/bundles/
+/tunnel-files/mirror-staging/
 /vendor/
 
