@@ -15,17 +15,21 @@ RUN apk add --no-cache \
     pkgconf \
     zlib-static
 
-WORKDIR /src/tunnel-agent
-COPY . .
+WORKDIR /src
+# Keep these legacy workspaces outside the tunnel-agent repository root. Cargo
+# 1.79 otherwise discovers the agent's Edition 2024 manifest while walking
+# parents and fails before it can read either transport manifest.
+COPY vendor/rathole /src/rathole
+COPY vendor/trusttunnel /src/trusttunnel
 
 RUN OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 \
-      cargo build --locked --release --manifest-path vendor/rathole/Cargo.toml \
+      cargo build --locked --release --manifest-path /src/rathole/Cargo.toml \
     && OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 \
-      cargo build --locked --release --manifest-path vendor/trusttunnel/Cargo.toml --bin trusttunnel_endpoint \
+      cargo build --locked --release --manifest-path /src/trusttunnel/Cargo.toml --bin trusttunnel_endpoint \
     && strip --strip-unneeded \
-      vendor/rathole/target/release/rathole \
-      vendor/trusttunnel/target/release/trusttunnel_endpoint
+      /src/rathole/target/release/rathole \
+      /src/trusttunnel/target/release/trusttunnel_endpoint
 
 FROM scratch AS export
-COPY --from=build /src/tunnel-agent/vendor/rathole/target/release/rathole /rathole
-COPY --from=build /src/tunnel-agent/vendor/trusttunnel/target/release/trusttunnel_endpoint /trusttunnel_endpoint
+COPY --from=build /src/rathole/target/release/rathole /rathole
+COPY --from=build /src/trusttunnel/target/release/trusttunnel_endpoint /trusttunnel_endpoint
