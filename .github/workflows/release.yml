@@ -44,6 +44,8 @@ jobs:
         run: |
           cp "target/${TARGET}/release/tunnel-agent" "tunnel-agent-${TARGET}"
           sha256sum "tunnel-agent-${TARGET}" > "tunnel-agent-${TARGET}.sha256"
+          tar -C "target/${TARGET}/release" -czf "tunnel-agent-${TARGET}.tar.gz" tunnel-agent
+          sha256sum "tunnel-agent-${TARGET}.tar.gz" > "tunnel-agent-${TARGET}.tar.gz.sha256"
         env:
           TARGET: ${{ matrix.target }}
       - uses: actions/upload-artifact@v4

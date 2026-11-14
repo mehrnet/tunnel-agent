@@ -1,13 +1,13 @@
+mod manifest;
+
 use std::{
-    collections::{BTreeMap, HashSet},
-    fs,
     path::PathBuf,
     process::{ExitCode, Stdio},
     time::Duration,
 };
 
 use clap::{Parser, Subcommand};
-use serde::Deserialize;
+use manifest::{CompiledPlan, ProcessSpec};
 use tokio::{
     process::{Child, Command},
     sync::watch,
@@ -20,7 +20,7 @@ const VERSION: &str = match option_env!("TUNNEL_AGENT_VERSION") {
 };
 
 #[derive(Parser)]
-#[command(name = "tunnel-agent", version = VERSION, about = "Low-footprint tunnel process supervisor")]
+#[command(name = "tunnel-agent", version = VERSION, about = "Low-footprint multi-transport tunnel runtime")]
 struct Cli {
     #[command(subcommand)]
     command: CommandKind,
@@ -28,134 +28,36 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum CommandKind {
-    /// Validate a process manifest without starting anything.
+    /// Validate a v1 legacy or v2 typed tunnel manifest without starting anything.
     Validate {
         #[arg(long, default_value = "/etc/tunnel-agent.json")]
         config: PathBuf,
+        #[arg(long, default_value = "/var/lib/tunnel-agent")]
+        state_dir: PathBuf,
     },
-    /// Supervise every process in the manifest until SIGINT or SIGTERM.
+    /// Print the process and listener plan without starting anything.
+    Plan {
+        #[arg(long, default_value = "/etc/tunnel-agent.json")]
+        config: PathBuf,
+        #[arg(long, default_value = "/var/lib/tunnel-agent")]
+        state_dir: PathBuf,
+    },
+    /// Download, verify, and atomically install pinned artifacts. Never runs periodically.
+    Sync {
+        #[arg(long, default_value = "/etc/tunnel-agent.json")]
+        config: PathBuf,
+        #[arg(long, default_value = "/var/lib/tunnel-agent")]
+        state_dir: PathBuf,
+        #[arg(long)]
+        artifact: Option<String>,
+    },
+    /// Supervise every compiled process until SIGINT or SIGTERM.
     Run {
         #[arg(long, default_value = "/etc/tunnel-agent.json")]
         config: PathBuf,
+        #[arg(long, default_value = "/var/lib/tunnel-agent")]
+        state_dir: PathBuf,
     },
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Config {
-    version: u32,
-    processes: Vec<ProcessSpec>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ProcessSpec {
-    id: String,
-    argv: Vec<String>,
-    #[serde(default)]
-    env: BTreeMap<String, String>,
-    workdir: Option<PathBuf>,
-    #[serde(default)]
-    restart: RestartPolicy,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RestartPolicy {
-    #[serde(default = "default_initial_backoff_ms")]
-    initial_backoff_ms: u64,
-    #[serde(default = "default_max_backoff_ms")]
-    max_backoff_ms: u64,
-    #[serde(default = "default_reset_after_secs")]
-    reset_after_secs: u64,
-}
-
-impl Default for RestartPolicy {
-    fn default() -> Self {
-        Self {
-            initial_backoff_ms: default_initial_backoff_ms(),
-            max_backoff_ms: default_max_backoff_ms(),
-            reset_after_secs: default_reset_after_secs(),
-        }
-    }
-}
-
-fn default_initial_backoff_ms() -> u64 {
-    1_000
-}
-
-fn default_max_backoff_ms() -> u64 {
-    60_000
-}
-
-fn default_reset_after_secs() -> u64 {
-    60
-}
-
-fn load_config(path: &PathBuf) -> Result<Config, String> {
-    let raw = fs::read_to_string(path)
-        .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-    let config: Config = serde_json::from_str(&raw)
-        .map_err(|error| format!("cannot parse {}: {error}", path.display()))?;
-    validate_config(&config)?;
-    Ok(config)
-}
-
-fn validate_config(config: &Config) -> Result<(), String> {
-    if config.version != 1 {
-        return Err(format!(
-            "unsupported manifest version {}; expected 1",
-            config.version
-        ));
-    }
-    if config.processes.is_empty() {
-        return Err("processes must not be empty".to_owned());
-    }
-
-    let mut ids = HashSet::new();
-    for process in &config.processes {
-        if process.id.trim().is_empty() {
-            return Err("process id must not be empty".to_owned());
-        }
-        if !ids.insert(process.id.as_str()) {
-            return Err(format!("duplicate process id {:?}", process.id));
-        }
-        if process.argv.is_empty() || process.argv[0].trim().is_empty() {
-            return Err(format!(
-                "process {:?} must contain a non-empty argv[0]",
-                process.id
-            ));
-        }
-        if process.restart.initial_backoff_ms == 0 {
-            return Err(format!(
-                "process {:?} initial_backoff_ms must be positive",
-                process.id
-            ));
-        }
-        if process.restart.max_backoff_ms < process.restart.initial_backoff_ms {
-            return Err(format!(
-                "process {:?} max_backoff_ms must be at least initial_backoff_ms",
-                process.id
-            ));
-        }
-        if process.restart.reset_after_secs == 0 {
-            return Err(format!(
-                "process {:?} reset_after_secs must be positive",
-                process.id
-            ));
-        }
-        if process
-            .env
-            .keys()
-            .any(|key| key.is_empty() || key.contains('='))
-        {
-            return Err(format!(
-                "process {:?} has an invalid environment key",
-                process.id
-            ));
-        }
-    }
-    Ok(())
 }
 
 fn spawn_child(spec: &ProcessSpec) -> std::io::Result<Child> {
@@ -175,8 +77,7 @@ fn spawn_child(spec: &ProcessSpec) -> std::io::Result<Child> {
 
 async fn stop_child(child: &mut Child, id: &str) {
     if let Some(pid) = child.id() {
-        // Child processes are protocol binaries. Give their own cleanup code a chance
-        // before falling back to SIGKILL, matching systemd's normal stop behaviour.
+        // Give protocol binaries time to close control connections before SIGKILL.
         unsafe {
             libc::kill(pid as libc::pid_t, libc::SIGTERM);
         }
@@ -201,7 +102,6 @@ async fn supervise(spec: ProcessSpec, mut shutdown: watch::Receiver<bool>) {
         if *shutdown.borrow() {
             return;
         }
-
         let mut child = match spawn_child(&spec) {
             Ok(child) => child,
             Err(error) => {
@@ -211,9 +111,7 @@ async fn supervise(spec: ProcessSpec, mut shutdown: watch::Receiver<bool>) {
                 );
                 tokio::select! {
                     _ = sleep(backoff) => {},
-                    changed = shutdown.changed() => {
-                        if changed.is_ok() && *shutdown.borrow() { return; }
-                    }
+                    changed = shutdown.changed() => if changed.is_ok() && *shutdown.borrow() { return; },
                 }
                 backoff = (backoff.saturating_mul(2)).min(max_backoff);
                 continue;
@@ -224,12 +122,10 @@ async fn supervise(spec: ProcessSpec, mut shutdown: watch::Receiver<bool>) {
         eprintln!("process={} pid={} started", spec.id, pid);
         let started = Instant::now();
         tokio::select! {
-            status = child.wait() => {
-                match status {
-                    Ok(status) => eprintln!("process={} pid={} exited status={status}", spec.id, pid),
-                    Err(error) => eprintln!("process={} pid={} wait failed: {error}", spec.id, pid),
-                }
-            }
+            status = child.wait() => match status {
+                Ok(status) => eprintln!("process={} pid={} exited status={status}", spec.id, pid),
+                Err(error) => eprintln!("process={} pid={} wait failed: {error}", spec.id, pid),
+            },
             changed = shutdown.changed() => {
                 if changed.is_ok() && *shutdown.borrow() {
                     stop_child(&mut child, &spec.id).await;
@@ -237,16 +133,13 @@ async fn supervise(spec: ProcessSpec, mut shutdown: watch::Receiver<bool>) {
                 }
             }
         }
-
         if started.elapsed() >= reset_after {
             backoff = initial_backoff;
         }
         eprintln!("process={} retrying in {:?}", spec.id, backoff);
         tokio::select! {
             _ = sleep(backoff) => {},
-            changed = shutdown.changed() => {
-                if changed.is_ok() && *shutdown.borrow() { return; }
-            }
+            changed = shutdown.changed() => if changed.is_ok() && *shutdown.borrow() { return; },
         }
         backoff = (backoff.saturating_mul(2)).min(max_backoff);
     }
@@ -255,13 +148,9 @@ async fn supervise(spec: ProcessSpec, mut shutdown: watch::Receiver<bool>) {
 #[cfg(unix)]
 async fn wait_for_shutdown() {
     use tokio::signal::unix::{SignalKind, signal};
-
     let mut terminate = signal(SignalKind::terminate()).expect("cannot install SIGTERM handler");
     let mut interrupt = signal(SignalKind::interrupt()).expect("cannot install SIGINT handler");
-    tokio::select! {
-        _ = terminate.recv() => {},
-        _ = interrupt.recv() => {},
-    }
+    tokio::select! { _ = terminate.recv() => {}, _ = interrupt.recv() => {} }
 }
 
 #[cfg(not(unix))]
@@ -269,13 +158,12 @@ async fn wait_for_shutdown() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
-async fn run(config: Config) {
+async fn run(plan: CompiledPlan) {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let mut handles = Vec::with_capacity(config.processes.len());
-    for process in config.processes {
+    let mut handles = Vec::with_capacity(plan.processes.len());
+    for process in plan.processes {
         handles.push(tokio::spawn(supervise(process, shutdown_rx.clone())));
     }
-
     wait_for_shutdown().await;
     eprintln!("shutdown signal received");
     let _ = shutdown_tx.send(true);
@@ -284,16 +172,48 @@ async fn run(config: Config) {
     }
 }
 
+fn print_plan(plan: &CompiledPlan) -> Result<(), String> {
+    let process_ids = plan
+        .processes
+        .iter()
+        .map(|process| process.id.as_str())
+        .collect::<Vec<_>>();
+    let listeners = plan
+        .listeners
+        .iter()
+        .map(|listener| format!("{}:{} ({})", listener.bind, listener.port, listener.owner))
+        .collect::<Vec<_>>();
+    let generated_files = plan
+        .generated_files
+        .iter()
+        .map(|file| file.path.display().to_string())
+        .collect::<Vec<_>>();
+    let document = serde_json::json!({
+        "processes": process_ids,
+        "local_listeners": listeners,
+        "generated_files": generated_files,
+    });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&document).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        CommandKind::Validate { config } => match load_config(&config) {
-            Ok(config) => {
+        CommandKind::Validate { config, state_dir } => match manifest::load_config(&config)
+            .and_then(|config| manifest::compile(&config, &state_dir).map(|plan| (config, plan)))
+        {
+            Ok((config, plan)) => {
                 println!(
-                    "valid version={} processes={}",
+                    "valid version={} processes={} tunnels={} listeners={}",
                     config.version,
-                    config.processes.len()
+                    plan.processes.len(),
+                    config.tunnels.len(),
+                    plan.listeners.len()
                 );
                 ExitCode::SUCCESS
             }
@@ -302,59 +222,60 @@ async fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        CommandKind::Run { config } => match load_config(&config) {
-            Ok(config) => {
-                eprintln!(
-                    "tunnel-agent version={VERSION} processes={}",
-                    config.processes.len()
-                );
-                run(config).await;
+        CommandKind::Plan { config, state_dir } => match manifest::load_config(&config)
+            .and_then(|config| manifest::compile(&config, &state_dir))
+        {
+            Ok(plan) => match print_plan(&plan) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("cannot print plan: {error}");
+                    ExitCode::FAILURE
+                }
+            },
+            Err(error) => {
+                eprintln!("cannot compile plan: {error}");
+                ExitCode::FAILURE
+            }
+        },
+        CommandKind::Sync {
+            config,
+            state_dir,
+            artifact,
+        } => match manifest::load_config(&config)
+            .and_then(|config| manifest::sync_artifacts(&config, &state_dir, artifact.as_deref()))
+        {
+            Ok(paths) => {
+                for path in paths {
+                    println!("synchronized {}", path.display());
+                }
                 ExitCode::SUCCESS
             }
+            Err(error) => {
+                eprintln!("cannot synchronize artifacts: {error}");
+                ExitCode::FAILURE
+            }
+        },
+        CommandKind::Run { config, state_dir } => match manifest::load_config(&config)
+            .and_then(|config| manifest::compile(&config, &state_dir))
+        {
+            Ok(plan) => match manifest::write_generated_files(&plan) {
+                Ok(()) => {
+                    eprintln!(
+                        "tunnel-agent version={VERSION} processes={}",
+                        plan.processes.len()
+                    );
+                    run(plan).await;
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("cannot write generated files: {error}");
+                    ExitCode::FAILURE
+                }
+            },
             Err(error) => {
                 eprintln!("cannot start: {error}");
                 ExitCode::FAILURE
             }
         },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn config(processes: Vec<ProcessSpec>) -> Config {
-        Config {
-            version: 1,
-            processes,
-        }
-    }
-
-    fn process(id: &str) -> ProcessSpec {
-        ProcessSpec {
-            id: id.to_owned(),
-            argv: vec!["/bin/true".to_owned()],
-            env: BTreeMap::new(),
-            workdir: None,
-            restart: RestartPolicy::default(),
-        }
-    }
-
-    #[test]
-    fn accepts_a_minimal_process() {
-        assert!(validate_config(&config(vec![process("first")])).is_ok());
-    }
-
-    #[test]
-    fn rejects_duplicate_process_ids() {
-        assert!(validate_config(&config(vec![process("same"), process("same")])).is_err());
-    }
-
-    #[test]
-    fn rejects_invalid_backoff_range() {
-        let mut spec = process("first");
-        spec.restart.initial_backoff_ms = 10;
-        spec.restart.max_backoff_ms = 9;
-        assert!(validate_config(&config(vec![spec])).is_err());
     }
 }

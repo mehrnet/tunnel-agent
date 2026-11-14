@@ -1,0 +1,40 @@
+{
+  "version": 2,
+  "node_scope": "domestic",
+  "artifacts": [
+    {
+      "id": "wstunnel",
+      "version": "11.3.0",
+      "binary": "wstunnel",
+      "package": "binary",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sources": [
+        {
+          "url": "https://iran-mirror.example/wstunnel-11.3.0-amd64",
+          "scope": "domestic",
+          "priority": 10
+        },
+        {
+          "url": "https://tunnel-agent.mehrnet.com/artifacts/wstunnel/11.3.0/linux-amd64",
+          "scope": "any",
+          "priority": 100
+        }
+      ]
+    }
+  ],
+  "tunnels": [
+    {
+      "contract": "wstunnel.server.v1",
+      "id": "wstunnel_server",
+      "artifact": "wstunnel",
+      "listener": {
+        "bind": "0.0.0.0",
+        "port": 4444
+      },
+      "tls_certificate": "/etc/tunnel-agent/certs/fullchain.pem",
+      "tls_private_key": "/etc/tunnel-agent/certs/privkey.pem",
+      "path_prefix": "/control/tunnel",
+      "worker_threads": 1
+    }
+  ]
+}

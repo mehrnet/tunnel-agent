@@ -1,79 +1,115 @@
 # tunnel-agent
 
-`tunnel-agent` is a low-footprint Rust supervisor for external tunnel binaries. It is intentionally not a proxy, protocol implementation, or control plane. It receives a declarative process manifest and keeps those processes running with bounded backoff.
+`tunnel-agent` is a small Rust runtime for declared tunnel contracts. It replaces
+the Python control loop around the existing HPNSSH, Jet, and WSTunnel deployment
+without reimplementing any tunnel protocol or changing an existing wire shape.
 
-It is designed to replace the Python *control plane* of the legacy HPN/Jet/WSTunnel deployment, not the HPN or WSTunnel data planes themselves. Keeping those binaries external preserves their existing wire behavior.
+The critical ownership boundary is:
 
-## Resource model
+- A cluster owner chooses a transport contract for each lane and node role.
+- MehrControl compiles a node-specific manifest.
+- `tunnel-agent` validates it, explicitly installs pinned artifacts from ordered
+  mirrors, renders contract-owned configuration, and supervises the processes.
+- A running agent never polls peers, calls SSH/systemd, or downloads updates.
 
-- One `current_thread` Tokio reactor per agent process, managing every child on the host.
-- Child exit notifications are asynchronous. There is no one-thread-per-lane model and no polling loop.
-- Process standard streams are sent directly to `/dev/null`; the supervisor never buffers child output.
-- No periodic `curl`, `ssh`, `systemctl`, or shell probes. Health policy belongs to MehrControl and is expressed through its desired-state document.
-- Every failed child uses bounded exponential backoff. A broken peer cannot create a fork storm.
+Legacy v1 raw `processes` manifests remain supported for staged migration.
 
-The agent cannot eliminate resources used by its children. For example, a foreign WSTunnel node with five reverse workers still has five WSTunnel processes and their TLS buffers. It replaces only the Python manager and lane guard overhead.
+## Transport contracts
 
-## Manifest
+| Contract | Role | Purpose |
+| --- | --- | --- |
+| `hpnssh.forward.v1` | SSH initiator | HPNSSH remote SOCKS, remote TCP, or local SOCKS lane. |
+| `hpnssh.server.v1` | SSH server | Runs a prepared `hpnsshd` configuration. |
+| `wstunnel.server.v1` | WSTunnel server | TLS WSS listener with a restricted path prefix. |
+| `wstunnel.reverse.v1` | WSTunnel client | Reverse SOCKS or reverse fixed-TCP listener over WSS. |
+| `rathole.service.v1` | Rathole server/client | Token-authenticated TCP service forwarding. |
+| `trusttunnel.endpoint.v1` | TrustTunnel endpoint | VPN endpoint with supplied settings and TLS host files. |
 
-The manifest is generic: no cluster, protocol, port, or vendor is built into this binary.
+TrustTunnel is an endpoint contract, not a generic inter-node reverse tunnel.
+Rathole has distinct server and client roles. Full role and configuration details
+are in [docs/CONTRACTS.md](docs/CONTRACTS.md).
+
+## Artifact mirrors
+
+Every artifact is versioned and SHA-256 pinned. Mirrors are explicitly scoped as
+`domestic`, `foreign`, or `any`; the agent never guesses a server's geography.
+A domestic node can therefore prefer a provider-hosted Iranian source while
+retaining `tunnel-agent.mehrnet.com` as a verified global fallback.
 
 ```json
 {
-  "version": 1,
-  "processes": [
+  "id": "wstunnel",
+  "version": "11.3.0",
+  "binary": "wstunnel",
+  "package": "binary",
+  "sha256": "<64-hex-package-sha256>",
+  "sources": [
     {
-      "id": "wstunnel-reverse-ir-1",
-      "argv": [
-        "/usr/local/bin/wstunnel",
-        "client",
-        "--remote-to-local",
-        "socks5://127.0.0.1:10910",
-        "wss://198.51.100.10:4444"
-      ],
-      "env": {},
-      "restart": {
-        "initial_backoff_ms": 1000,
-        "max_backoff_ms": 60000,
-        "reset_after_secs": 60
-      }
+      "url": "https://iran-mirror.example/wstunnel-11.3.0-amd64",
+      "scope": "domestic",
+      "priority": 10
+    },
+    {
+      "url": "https://tunnel-agent.mehrnet.com/artifacts/wstunnel/11.3.0/linux-amd64",
+      "scope": "any",
+      "priority": 100
     }
   ]
 }
 ```
 
+`sha256` covers the downloaded package. For a `tar_gz` package,
+`binary_sha256` can additionally pin the extracted binary. Files are installed
+atomically under `/var/lib/tunnel-agent/artifacts/<id>/<version>/`.
+
+## Commands
+
 ```sh
+# No network and no process start.
 tunnel-agent validate --config /etc/tunnel-agent.json
+tunnel-agent plan --config /etc/tunnel-agent.json
+
+# Explicit artifact installation. This is the only agent command that accesses mirrors.
+tunnel-agent sync --config /etc/tunnel-agent.json
+
+# Render contract-owned files and supervise already-installed artifacts.
 tunnel-agent run --config /etc/tunnel-agent.json
 ```
 
-Configuration changes are applied by atomically writing the manifest then restarting this agent through systemd. A later protocol revision will add in-place reload after the canary proves the simpler restart path stable.
+`distribution/install.sh` is a small POSIX bootstrap intended for static hosting
+at `https://tunnel-agent.mehrnet.com/install.sh`. It requires an out-of-band
+package SHA-256 and accepts ordered source URLs. It never fetches an unverified
+`latest` binary.
+
+## Resource model
+
+- One single-thread Tokio runtime supervises every child on a host.
+- No one-thread-per-lane model, polling loop, shell probe, or peer seed task.
+- Child output is discarded by default; protocol logs remain protocol-owned.
+- Failed child processes use bounded exponential backoff.
+- It cannot remove HPNSSH/WSTunnel/Rathole data-plane cost. It replaces the
+  Python manager and lane guard overhead and removes their continual probes.
 
 ## MehrControl integration
 
-`control-node` remains the generic node agent. It downloads this binary as an artifact, writes the compiled manifest, and declares `tunnel-agent` as a daemon process. `control-api` owns topology, secrets, health policy, rollouts, and process arguments.
-
-This separation is deliberate:
-
-- `control-node`: generic artifact, file, process, telemetry, and sync primitives.
-- `tunnel-agent`: tiny local child-process supervisor.
-- HPNSSH/WSTunnel: data-plane binaries.
-- `control-api`: desired state and policy.
+`control-node` remains the generic node agent. It obtains this static artifact,
+writes the node-specific manifest and protected inputs, runs `tunnel-agent sync`,
+then manages `tunnel-agent run` as a daemon. `control-api` owns topology,
+secrets, health policy, rollout gates, and mirror selection. The runtime remains
+usable without MehrControl through plain local JSON and files.
 
 ## Releases
 
-Tags matching `v*` produce private GitHub Release assets for:
-
-- `x86_64-unknown-linux-musl`
-- `aarch64-unknown-linux-musl`
-
-Each binary is statically linked and accompanied by a SHA-256 file. `--version` uses the Git tag injected by the release workflow.
+Tags matching `v*` build private GitHub Release assets for Linux `amd64` and
+`arm64`, statically linked with musl. `--version` contains the Git tag injected
+by CI. The Cloudflare static site mirrors exact immutable release assets; it
+must not replace desired-state pinning with a mutable binary URL.
 
 ## Development
 
 ```sh
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
-cargo test
+cargo test --locked
 cargo build --release
 ```

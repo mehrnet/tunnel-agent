@@ -1,0 +1,170 @@
+# Tunnel Contracts
+
+## Purpose
+
+A tunnel contract describes one local process role with enough typed information
+to safely compile its configuration and command line. It is not an inventory of
+the whole cluster. MehrControl produces one manifest per node, so a foreign
+node's WSTunnel client and a domestic node's WSTunnel server are different
+contracts in different manifests.
+
+This replaces the legacy pattern where every host parsed a global cluster,
+inferred roles, launched unrelated workers, and required SSH topology discovery
+or peer seeding before it could apply an update.
+
+## Invariants
+
+- IDs contain only letters, numbers, `_`, and `-`.
+- A contract references an artifact by immutable `id` and `version`.
+- Source selection is explicit through `node_scope`; there is no geography
+  lookup or reachability inference.
+- Every downloaded package is SHA-256 checked before it is published. An archive
+  can also pin its extracted binary with `binary_sha256`.
+- Typed contracts claim local listeners. Two contracts claiming the same
+  `bind:port` fail validation before anything starts.
+- Every contract defaults to `"enabled": true`. A disabled contract retains its
+  ID and topology history but is not compiled, does not need a local artifact,
+  and claims no listener. This is the safe toggle/rollback mechanism for a lane.
+- Legacy raw processes are opaque and remain only for migration. They cannot
+  participate in listener-conflict detection.
+- `run` never accesses the network. `sync` is the only artifact-fetch command.
+
+## HPNSSH
+
+`hpnssh.forward.v1` runs an HPNSSH client. `direction` means the SSH forwarding
+primitive, not a vague geographic label:
+
+- `remote_socks`: `hpnssh -R bind:port peer`; the peer gets a SOCKS listener.
+- `remote_tcp`: `hpnssh -R bind:port:target_host:target_port peer`.
+- `local_socks`: `hpnssh -D bind:port peer`; this node gets a local SOCKS
+  listener.
+
+Strict host-key checking is enabled by default. A strict contract requires a
+specific `known_hosts_file`; it never accepts a changed remote key during a live
+lane. `hpnssh.server.v1` is optional for an already bootstrapped HPN SSHD
+configuration. Host keys, users, and privilege-separation setup remain a
+host-baseline artifact.
+
+```json
+{
+  "contract": "hpnssh.forward.v1",
+  "id": "tr_to_ir_hpn",
+  "artifact": "hpnssh",
+  "direction": "remote_socks",
+  "peer": {
+    "host": "ir-1.example",
+    "user": "tunnel",
+    "port": 2222,
+    "identity_file": "/etc/tunnel-agent/keys/tr_to_ir",
+    "known_hosts_file": "/etc/tunnel-agent/known_hosts"
+  },
+  "listener": { "bind": "127.0.0.1", "port": 10810 }
+}
+```
+
+## WSTunnel
+
+WSTunnel has two roles. The domestic/server role owns its TLS listener; a
+foreign/client role opens a reverse SOCKS or fixed TCP mapping through the WSS
+endpoint. These roles must not claim the same local port on one host.
+
+```json
+{
+  "contract": "wstunnel.reverse.v1",
+  "id": "tr_to_ir_wstunnel",
+  "artifact": "wstunnel",
+  "endpoint": {
+    "url": "wss://ir-1.example:4444",
+    "tls_sni": "tunnel.example",
+    "path_prefix": "/control/tunnel",
+    "verify_certificate": true
+  },
+  "remote_listener": {
+    "scheme": "socks5",
+    "bind": "127.0.0.1",
+    "port": 10910
+  }
+}
+```
+
+For a fixed TCP destination, use `scheme: "tcp"` with a `target` object.
+
+## Rathole
+
+Rathole is a service-forwarding transport. Its server has the public control
+listener and service listeners. Its client connects to the server and binds each
+service to a local target. Every service has its own required token.
+
+The first contract revision intentionally renders only Rathole TCP transport.
+Rathole TLS and Noise require complete certificate/key and trust contracts;
+accepting partial TLS/Noise settings would generate a configuration that appears
+valid but cannot safely establish a lane.
+
+Server:
+
+```json
+{
+  "contract": "rathole.service.v1",
+  "id": "de_rathole_server",
+  "artifact": "rathole",
+  "role": "server",
+  "control": { "bind": "0.0.0.0:2333" },
+  "services": [
+    { "id": "xhttp", "token": "secret-from-control-api", "bind": "0.0.0.0:8443" }
+  ]
+}
+```
+
+Client:
+
+```json
+{
+  "contract": "rathole.service.v1",
+  "id": "ir_rathole_client",
+  "artifact": "rathole",
+  "role": "client",
+  "control": { "remote": "de.example:2333" },
+  "services": [
+    { "id": "xhttp", "token": "secret-from-control-api", "local": "127.0.0.1:48443" }
+  ]
+}
+```
+
+The agent renders a private TOML file under its state directory and invokes
+Rathole in explicit `--server` or `--client` mode.
+
+## TrustTunnel
+
+TrustTunnel is an HTTPS-shaped VPN endpoint, not a generic reverse forwarder.
+`trusttunnel.endpoint.v1` starts its endpoint binary with prepared main settings
+and TLS host files. Credentials, client rules, certificates, and optional
+subscription configuration remain protected inputs supplied by control-node.
+The contract makes endpoint lifecycle declarative without misrepresenting it as
+a substitute for HPNSSH, WSTunnel, or Rathole lanes.
+
+```json
+{
+  "contract": "trusttunnel.endpoint.v1",
+  "id": "trusttunnel_de",
+  "artifact": "trusttunnel_endpoint",
+  "settings_file": "/etc/tunnel-agent/trusttunnel/vpn.toml",
+  "tls_hosts_file": "/etc/tunnel-agent/trusttunnel/hosts.toml",
+  "jobs": 2,
+  "log_level": "info"
+}
+```
+
+## Rollout model
+
+1. Create domestic and foreign mirror entries for every binary with an exact
+   version and checksum.
+2. Install the static agent bootstrap from an ordered mirror list.
+3. Deploy a v2 manifest containing only an additional canary lane.
+4. Run `validate`, then `plan`, then explicit `sync`; verify artifact hashes and
+   listener claims before starting it.
+5. Run the canary beside the legacy tunnel on distinct ports and collect health,
+   CPU, memory, reconnect, and throughput measurements.
+6. Move one production listener only after the canary meets a rollback threshold.
+   Retain a disabled legacy definition until the observation window passes.
+7. Retire P2P deployment seeding only after domestic and global mirrors have
+   repeatedly passed failure and recovery tests.
