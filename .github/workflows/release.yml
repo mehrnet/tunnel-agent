@@ -65,10 +65,12 @@ jobs:
         shell: bash
         env:
           DOCKER_PLATFORM: ${{ matrix.docker_platform }}
+          TUNNEL_AGENT_TARGET: ${{ matrix.target }}
         run: |
           docker buildx build \
             --platform "$DOCKER_PLATFORM" \
             --file distribution/build/trusttunnel/Dockerfile \
+            --build-arg RUST_TARGET="$TUNNEL_AGENT_TARGET" \
             --target export \
             --output type=local,dest=trusttunnel-output \
             .
@@ -112,6 +114,22 @@ jobs:
           test -x rust-output/wstunnel
           test -x trusttunnel-output/rathole
           test -x trusttunnel-output/trusttunnel_endpoint
+      - name: Verify transport binaries are fully static
+        shell: bash
+        run: |
+          for binary in \
+            rust-output/tunnel-agent \
+            rust-output/wstunnel \
+            trusttunnel-output/rathole \
+            trusttunnel-output/trusttunnel_endpoint \
+            hpn-output/hpnssh/bin/hpnssh \
+            hpn-output/hpnssh/sbin/hpnsshd
+          do
+            if readelf --program-headers "$binary" | grep --quiet 'Requesting program interpreter'; then
+              echo "expected static binary, found ELF interpreter: $binary" >&2
+              exit 1
+            fi
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: tunnel-agent-bundle-${{ matrix.architecture }}
