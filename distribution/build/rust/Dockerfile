@@ -5,9 +5,12 @@ ARG TUNNEL_AGENT_VERSION
 RUN apk add --no-cache \
     binutils \
     build-base \
+    cmake \
     linux-headers \
+    nasm \
     openssl-dev \
     openssl-libs-static \
+    perl \
     pkgconf \
     zlib-static
 
