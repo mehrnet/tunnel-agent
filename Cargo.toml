@@ -2,7 +2,7 @@
 name = "tunnel-agent"
 version = "0.3.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Low-footprint multi-transport tunnel runtime"
 repository = "https://github.com/mehrnet/tunnel-agent"
 

@@ -1,4 +1,4 @@
-FROM rust:1.85-alpine3.21 AS build
+FROM rust:1.88-alpine3.21 AS build
 
 ARG TUNNEL_AGENT_VERSION
 
