@@ -1,3 +1,6 @@
 /target/
 /tunnel-agent
+/distribution/.dev.vars
+/distribution/.wrangler/
+/distribution/node_modules/
 

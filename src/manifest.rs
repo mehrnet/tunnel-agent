@@ -17,6 +17,10 @@ pub struct Config {
     pub version: u32,
     #[serde(default)]
     pub node_scope: NodeScope,
+    /// Version 3 manifests execute only the immutable transport bundle installed
+    /// by the bootstrapper. They never fetch a tunnel binary at lane-apply time.
+    #[serde(default)]
+    pub bundle: Option<BundleSpec>,
     #[serde(default)]
     pub artifacts: Vec<ArtifactSpec>,
     #[serde(default)]
@@ -24,6 +28,22 @@ pub struct Config {
     #[serde(default)]
     pub tunnels: Vec<TunnelSpec>,
 }
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BundleSpec {
+    /// Usually `/opt/tunnel-agent/current`. The installer atomically advances
+    /// this symlink only after a complete bundle has been verified.
+    pub root: PathBuf,
+}
+
+const BUNDLED_ARTIFACTS: &[(&str, &str)] = &[
+    ("hpnssh", "hpnssh/bin/hpnssh"),
+    ("hpnsshd", "hpnssh/sbin/hpnsshd"),
+    ("wstunnel", "bin/wstunnel"),
+    ("rathole", "bin/rathole"),
+    ("trusttunnel", "bin/trusttunnel_endpoint"),
+];
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -416,7 +436,8 @@ pub fn load_config(path: &Path) -> Result<Config, String> {
 pub fn validate_config(config: &Config) -> Result<(), String> {
     match config.version {
         1 => {
-            if !config.artifacts.is_empty() || !config.tunnels.is_empty() {
+            if config.bundle.is_some() || !config.artifacts.is_empty() || !config.tunnels.is_empty()
+            {
                 return Err("manifest version 1 only supports processes".to_owned());
             }
             if config.processes.is_empty() {
@@ -424,13 +445,36 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
             }
         }
         2 => {
+            if config.bundle.is_some() {
+                return Err("manifest version 2 must not define bundle".to_owned());
+            }
             if config.processes.is_empty() && config.tunnels.is_empty() {
                 return Err("version 2 requires at least one process or tunnel".to_owned());
             }
         }
+        3 => {
+            if !config.artifacts.is_empty() {
+                return Err(
+                    "manifest version 3 uses the installed bundle and must not define artifacts"
+                        .to_owned(),
+                );
+            }
+            if !config.processes.is_empty() {
+                return Err(
+                    "manifest version 3 supports typed tunnels only; raw processes are not allowed"
+                        .to_owned(),
+                );
+            }
+            validate_bundle(
+                config
+                    .bundle
+                    .as_ref()
+                    .ok_or_else(|| "manifest version 3 requires bundle.root".to_owned())?,
+            )?;
+        }
         version => {
             return Err(format!(
-                "unsupported manifest version {version}; expected 1 or 2"
+                "unsupported manifest version {version}; expected 1, 2, or 3"
             ));
         }
     }
@@ -438,11 +482,14 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
     validate_processes(&config.processes)?;
     validate_artifacts(&config.artifacts)?;
 
-    let artifacts: HashSet<&str> = config
-        .artifacts
-        .iter()
-        .map(|artifact| artifact.id.as_str())
-        .collect();
+    let artifacts: HashSet<&str> = match &config.bundle {
+        Some(_) => BUNDLED_ARTIFACTS.iter().map(|(id, _)| *id).collect(),
+        None => config
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.id.as_str())
+            .collect(),
+    };
     let mut ids: HashSet<&str> = config
         .processes
         .iter()
@@ -456,6 +503,16 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
         if tunnel.enabled() {
             validate_tunnel(tunnel, &artifacts)?;
         }
+    }
+    Ok(())
+}
+
+fn validate_bundle(bundle: &BundleSpec) -> Result<(), String> {
+    if !bundle.root.is_absolute() {
+        return Err("bundle.root must be an absolute path".to_owned());
+    }
+    if bundle.root.as_os_str().is_empty() {
+        return Err("bundle.root must not be empty".to_owned());
     }
     Ok(())
 }
@@ -850,16 +907,7 @@ fn validate_rathole(spec: &RatholeService) -> Result<(), String> {
 
 pub fn compile(config: &Config, state_dir: &Path) -> Result<CompiledPlan, String> {
     validate_config(config)?;
-    let artifact_paths = config
-        .artifacts
-        .iter()
-        .map(|artifact| {
-            (
-                artifact.id.as_str(),
-                artifact_binary_path(state_dir, artifact),
-            )
-        })
-        .collect::<HashMap<_, _>>();
+    let artifact_paths = resolve_artifact_paths(config, state_dir)?;
     let mut processes = config.processes.clone();
     let mut generated_files = Vec::new();
     let mut listeners = Vec::new();
@@ -977,6 +1025,28 @@ pub fn compile(config: &Config, state_dir: &Path) -> Result<CompiledPlan, String
         generated_files,
         listeners,
     })
+}
+
+fn resolve_artifact_paths(
+    config: &Config,
+    state_dir: &Path,
+) -> Result<HashMap<String, PathBuf>, String> {
+    if let Some(bundle) = &config.bundle {
+        return BUNDLED_ARTIFACTS
+            .iter()
+            .map(|(id, relative)| Ok(((*id).to_owned(), bundle.root.join(relative))))
+            .collect();
+    }
+    Ok(config
+        .artifacts
+        .iter()
+        .map(|artifact| {
+            (
+                artifact.id.clone(),
+                artifact_binary_path(state_dir, artifact),
+            )
+        })
+        .collect())
 }
 
 fn compile_hpn_forward(spec: &HpnSshForward, binary: &Path) -> ProcessSpec {
@@ -1264,6 +1334,12 @@ pub fn sync_artifacts(
     only_id: Option<&str>,
 ) -> Result<Vec<PathBuf>, String> {
     validate_config(config)?;
+    if config.bundle.is_some() {
+        return Err(
+            "manifest version 3 uses preinstalled bundle artifacts; sync is intentionally disabled"
+                .to_owned(),
+        );
+    }
     let mut paths = Vec::new();
     for artifact in &config.artifacts {
         if only_id.is_some_and(|id| id != artifact.id) {
@@ -1503,6 +1579,7 @@ mod tests {
         let config = Config {
             version: 1,
             node_scope: NodeScope::Any,
+            bundle: None,
             artifacts: vec![],
             processes: vec![process("first")],
             tunnels: vec![],
@@ -1515,6 +1592,7 @@ mod tests {
         let config = Config {
             version: 1,
             node_scope: NodeScope::Any,
+            bundle: None,
             artifacts: vec![],
             processes: vec![process("same"), process("same")],
             tunnels: vec![],
@@ -1527,6 +1605,7 @@ mod tests {
         let config = Config {
             version: 2,
             node_scope: NodeScope::Foreign,
+            bundle: None,
             processes: vec![],
             artifacts: vec![artifact("rathole")],
             tunnels: vec![TunnelSpec::RatholeService(RatholeService {
@@ -1583,6 +1662,7 @@ mod tests {
         let config = Config {
             version: 2,
             node_scope: NodeScope::Domestic,
+            bundle: None,
             artifacts: vec![first],
             processes: vec![],
             tunnels: vec![server("one"), server("two")],
@@ -1619,6 +1699,7 @@ mod tests {
         let config = Config {
             version: 2,
             node_scope: NodeScope::Foreign,
+            bundle: None,
             artifacts: vec![artifact("hpn")],
             processes: vec![],
             tunnels: vec![TunnelSpec::HpnSshForward(spec)],
@@ -1645,6 +1726,30 @@ mod tests {
         let plan = compile(&config, Path::new("/state")).expect("disabled tunnel is ignored");
         assert!(plan.processes.is_empty());
         assert!(plan.listeners.is_empty());
+    }
+
+    #[test]
+    fn bundled_manifest_resolves_preinstalled_transport_binaries() {
+        let raw = r#"{
+          "version": 3,
+          "bundle": {"root": "/opt/tunnel-agent/current"},
+          "tunnels": [{
+            "contract": "wstunnel.server.v1",
+            "id": "canary",
+            "artifact": "wstunnel",
+            "listener": {"bind": "127.0.0.1", "port": 14444},
+            "tls_certificate": "/etc/tunnel-agent/cert.pem",
+            "tls_private_key": "/etc/tunnel-agent/key.pem",
+            "path_prefix": "/canary"
+          }]
+        }"#;
+        let config: Config = serde_json::from_str(raw).expect("valid bundled manifest");
+        let plan = compile(&config, Path::new("/unused-state")).expect("bundled plan");
+        assert_eq!(
+            plan.processes[0].argv[0],
+            "/opt/tunnel-agent/current/bin/wstunnel"
+        );
+        assert!(sync_artifacts(&config, Path::new("/unused-state"), None).is_err());
     }
 
     #[test]

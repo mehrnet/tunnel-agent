@@ -7,14 +7,26 @@ on:
 permissions:
   contents: write
 
+env:
+  HPN_COMMIT: e2dfa0cea55d93747f4c68b4a2b134d6fbe0db06
+  WSTUNNEL_COMMIT: e46489298b0c6aaadb0bb3ca77e5832aa658455c
+  RATHOLE_COMMIT: ebb764ae53d7ffe4fcb45f83f7563bec5c74199d
+  TRUSTTUNNEL_COMMIT: 8f51a85793928692bd06834c285ba623cb9511a8
+
 jobs:
-  build:
-    name: ${{ matrix.target }}
-    runs-on: ubuntu-latest
+  bundle:
+    name: bundle-${{ matrix.architecture }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
+        include:
+          - architecture: amd64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -23,39 +35,67 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cross
-      - name: Build static binary
-        run: cross build --locked --release --target "$TARGET"
+      - name: Checkout pinned transport sources
+        shell: bash
+        run: |
+          mkdir -p vendor
+          git clone --filter=blob:none https://github.com/erebe/wstunnel.git vendor/wstunnel
+          git -C vendor/wstunnel checkout --detach "$WSTUNNEL_COMMIT"
+          git clone --filter=blob:none https://github.com/rathole-org/rathole.git vendor/rathole
+          git -C vendor/rathole checkout --detach "$RATHOLE_COMMIT"
+          git clone --filter=blob:none https://github.com/TrustTunnel/TrustTunnel.git vendor/trusttunnel
+          git -C vendor/trusttunnel checkout --detach "$TRUSTTUNNEL_COMMIT"
+      - name: Build static Rust transports
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
           TUNNEL_AGENT_VERSION: ${{ github.ref_name }}
-      - name: Verify embedded version
         run: |
-          binary="target/${TARGET}/release/tunnel-agent"
-          if [ "$TARGET" = "x86_64-unknown-linux-musl" ]; then
-            test "$("$binary" --version)" = "tunnel-agent ${TUNNEL_AGENT_VERSION}"
-          else
-            grep -aFq "$TUNNEL_AGENT_VERSION" "$binary"
-          fi
-        env:
-          TARGET: ${{ matrix.target }}
-          TUNNEL_AGENT_VERSION: ${{ github.ref_name }}
-      - name: Package release asset
+          cross build --locked --release --target "$TARGET"
+          cross build --locked --release --target "$TARGET" --manifest-path vendor/wstunnel/Cargo.toml
+          cross build --locked --release --target "$TARGET" --manifest-path vendor/rathole/Cargo.toml
+          cross build --locked --release --target "$TARGET" --manifest-path vendor/trusttunnel/Cargo.toml --bin trusttunnel_endpoint
+      - name: Build static HPNSSH tree
+        shell: bash
         run: |
-          cp "target/${TARGET}/release/tunnel-agent" "tunnel-agent-${TARGET}"
-          sha256sum "tunnel-agent-${TARGET}" > "tunnel-agent-${TARGET}.sha256"
-          tar -C "target/${TARGET}/release" -czf "tunnel-agent-${TARGET}.tar.gz" tunnel-agent
-          sha256sum "tunnel-agent-${TARGET}.tar.gz" > "tunnel-agent-${TARGET}.tar.gz.sha256"
+          docker build \
+            --file distribution/build/hpn/Dockerfile \
+            --build-arg HPN_COMMIT="$HPN_COMMIT" \
+            --target export \
+            --tag tunnel-agent-hpn-export \
+            .
+          container=$(docker create tunnel-agent-hpn-export /hpnssh/bin/hpnssh -V)
+          mkdir -p hpn-output
+          docker cp "$container:/hpnssh" hpn-output/hpnssh
+          docker rm "$container"
+      - name: Assemble immutable bundle
+        shell: bash
         env:
-          TARGET: ${{ matrix.target }}
+          BUNDLE_VERSION: ${{ github.ref_name }}
+          BUNDLE_TARGET: ${{ matrix.target }}
+          TUNNEL_AGENT_BIN: target/${{ matrix.target }}/release/tunnel-agent
+          WSTUNNEL_BIN: vendor/wstunnel/target/${{ matrix.target }}/release/wstunnel
+          RATHOLE_BIN: vendor/rathole/target/${{ matrix.target }}/release/rathole
+          TRUSTTUNNEL_BIN: vendor/trusttunnel/target/${{ matrix.target }}/release/trusttunnel_endpoint
+          HPNSSH_PREFIX: hpn-output/hpnssh
+          BUNDLE_OUTPUT_DIR: release
+        run: |
+          chmod +x distribution/build/bundle.sh
+          distribution/build/bundle.sh
+          test "$(target/${{ matrix.target }}/release/tunnel-agent --version)" = "tunnel-agent ${GITHUB_REF_NAME}"
+          test -x hpn-output/hpnssh/bin/hpnssh
+          test -x hpn-output/hpnssh/sbin/hpnsshd
+          test -x vendor/wstunnel/target/${{ matrix.target }}/release/wstunnel
+          test -x vendor/rathole/target/${{ matrix.target }}/release/rathole
+          test -x vendor/trusttunnel/target/${{ matrix.target }}/release/trusttunnel_endpoint
       - uses: actions/upload-artifact@v4
         with:
-          name: tunnel-agent-${{ matrix.target }}
-          path: tunnel-agent-*
+          name: tunnel-agent-bundle-${{ matrix.architecture }}
+          path: release/*
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs: bundle
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +111,7 @@ jobs:
         run: gh release create "$GITHUB_REF_NAME" release/* --generate-notes --verify-tag --repo "$GITHUB_REPOSITORY"
 
   static-assets:
-    needs: build
+    needs: bundle
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,13 +119,12 @@ jobs:
         with:
           path: release
           merge-multiple: true
-      - name: Assemble immutable static asset bundle
+      - name: Assemble static site and immutable bundle paths
+        shell: bash
         run: |
-          release_dir="distribution/public/releases/${GITHUB_REF_NAME}"
-          rm -rf distribution/public/releases
-          mkdir -p "$release_dir"
+          mkdir -p "distribution/public/bundles/${GITHUB_REF_NAME}"
           cp distribution/install.sh distribution/public/install.sh
-          cp release/* "$release_dir/"
+          cp release/* "distribution/public/bundles/${GITHUB_REF_NAME}/"
       - uses: actions/upload-artifact@v4
         with:
           name: tunnel-agent-static-assets-${{ github.ref_name }}

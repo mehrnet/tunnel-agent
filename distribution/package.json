@@ -1,0 +1,17 @@
+{
+  "name": "tunnel-agent-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply tunnel-agent --local",
+    "db:migrate:remote": "wrangler d1 migrations apply tunnel-agent --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261114.1",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.162.0"
+  }
+}

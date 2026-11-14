@@ -28,7 +28,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum CommandKind {
-    /// Validate a v1 legacy or v2 typed tunnel manifest without starting anything.
+    /// Validate a v1, v2, or pre-bundled v3 tunnel manifest without starting anything.
     Validate {
         #[arg(long, default_value = "/etc/tunnel-agent.json")]
         config: PathBuf,
@@ -42,7 +42,7 @@ enum CommandKind {
         #[arg(long, default_value = "/var/lib/tunnel-agent")]
         state_dir: PathBuf,
     },
-    /// Download, verify, and atomically install pinned artifacts. Never runs periodically.
+    /// Download, verify, and atomically install pinned v2 artifacts. v3 bundles are preinstalled.
     Sync {
         #[arg(long, default_value = "/etc/tunnel-agent.json")]
         config: PathBuf,

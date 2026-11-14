@@ -4,7 +4,7 @@
 
 A tunnel contract describes one local process role with enough typed information
 to safely compile its configuration and command line. It is not an inventory of
-the whole cluster. MehrControl produces one manifest per node, so a foreign
+the whole cluster. The tunnel-agent API produces one manifest per node, so a foreign
 node's WSTunnel client and a domestic node's WSTunnel server are different
 contracts in different manifests.
 
@@ -15,11 +15,11 @@ or peer seeding before it could apply an update.
 ## Invariants
 
 - IDs contain only letters, numbers, `_`, and `-`.
-- A contract references an artifact by immutable `id` and `version`.
-- Source selection is explicit through `node_scope`; there is no geography
-  lookup or reachability inference.
-- Every downloaded package is SHA-256 checked before it is published. An archive
-  can also pin its extracted binary with `binary_sha256`.
+- Version 3 contracts reference a preinstalled artifact ID from the immutable
+  `/opt/tunnel-agent/current` bundle. No lane activation downloads a binary.
+- Version 2 source selection remains explicit through `node_scope`; there is no
+  geography lookup or reachability inference.
+- Every versioned bundle archive is SHA-256 checked before it is published.
 - Typed contracts claim local listeners. Two contracts claiming the same
   `bind:port` fail validation before anything starts.
 - Every contract defaults to `"enabled": true`. A disabled contract retains its
@@ -27,7 +27,8 @@ or peer seeding before it could apply an update.
   and claims no listener. This is the safe toggle/rollback mechanism for a lane.
 - Legacy raw processes are opaque and remain only for migration. They cannot
   participate in listener-conflict detection.
-- `run` never accesses the network. `sync` is the only artifact-fetch command.
+- `run` never accesses the network. Legacy v2 `sync` is the only artifact-fetch
+  command; v3 bundles deliberately disable it.
 
 ## HPNSSH
 
@@ -110,7 +111,7 @@ Server:
   "role": "server",
   "control": { "bind": "0.0.0.0:2333" },
   "services": [
-    { "id": "xhttp", "token": "secret-from-control-api", "bind": "0.0.0.0:8443" }
+    { "id": "xhttp", "token": "secret-from-api", "bind": "0.0.0.0:8443" }
   ]
 }
 ```
@@ -125,7 +126,7 @@ Client:
   "role": "client",
   "control": { "remote": "de.example:2333" },
   "services": [
-    { "id": "xhttp", "token": "secret-from-control-api", "local": "127.0.0.1:48443" }
+    { "id": "xhttp", "token": "secret-from-api", "local": "127.0.0.1:48443" }
   ]
 }
 ```
@@ -138,7 +139,8 @@ Rathole in explicit `--server` or `--client` mode.
 TrustTunnel is an HTTPS-shaped VPN endpoint, not a generic reverse forwarder.
 `trusttunnel.endpoint.v1` starts its endpoint binary with prepared main settings
 and TLS host files. Credentials, client rules, certificates, and optional
-subscription configuration remain protected inputs supplied by control-node.
+subscription configuration remain protected inputs supplied by the tunnel-agent
+API.
 The contract makes endpoint lifecycle declarative without misrepresenting it as
 a substitute for HPNSSH, WSTunnel, or Rathole lanes.
 
@@ -156,12 +158,12 @@ a substitute for HPNSSH, WSTunnel, or Rathole lanes.
 
 ## Rollout model
 
-1. Create domestic and foreign mirror entries for every binary with an exact
-   version and checksum.
-2. Install the static agent bootstrap from an ordered mirror list.
-3. Deploy a v2 manifest containing only an additional canary lane.
-4. Run `validate`, then `plan`, then explicit `sync`; verify artifact hashes and
-   listener claims before starting it.
+1. Build domestic and foreign mirror entries for every immutable release bundle
+   with an exact version and checksum.
+2. Install the static agent bundle from the mirror selected for the node class.
+3. Deploy a v3 manifest containing only an additional canary lane.
+4. Run `validate`, then `plan`; verify the preinstalled bundle and listener
+   claims before starting it.
 5. Run the canary beside the legacy tunnel on distinct ports and collect health,
    CPU, memory, reconnect, and throughput measurements.
 6. Move one production listener only after the canary meets a rollback threshold.

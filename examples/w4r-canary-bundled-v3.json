@@ -1,0 +1,22 @@
+{
+  "version": 3,
+  "node_scope": "domestic",
+  "bundle": {
+    "root": "/opt/tunnel-agent/current"
+  },
+  "tunnels": [
+    {
+      "contract": "wstunnel.server.v1",
+      "id": "w4r-canary-wstunnel-server",
+      "artifact": "wstunnel",
+      "listener": {
+        "bind": "0.0.0.0",
+        "port": 14444
+      },
+      "tls_certificate": "/etc/tunnel-agent/canary/fullchain.pem",
+      "tls_private_key": "/etc/tunnel-agent/canary/privkey.pem",
+      "path_prefix": "/w4r-canary",
+      "worker_threads": 1
+    }
+  ]
+}

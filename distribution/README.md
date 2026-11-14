@@ -1,25 +1,38 @@
-# Static distribution assets
+# tunnel-agent distribution Worker
 
-Publish `distribution/public` with the adjacent `wrangler.jsonc` to the
-Cloudflare ASSETS site behind `tunnel-agent.mehrnet.com`. The release workflow
-uploads an artifact named `tunnel-agent-static-assets-vX.Y.Z` ready for this
-directory. Keep assets immutable by release path:
+`wrangler.jsonc` deploys the complete `tunnel-agent.mehrnet.com` origin:
 
-```text
-/install.sh
-/releases/v0.2.0/tunnel-agent-x86_64-unknown-linux-musl.tar.gz
-/releases/v0.2.0/tunnel-agent-aarch64-unknown-linux-musl.tar.gz
+- `/api/*` runs [src/index.ts](src/index.ts) with the D1 `DB` binding.
+- every other request is served from `public/` through the `ASSETS` binding.
+
+The Worker source deliberately has no transport binary and no bot token in its
+repository configuration.
+
+## Initial deployment
+
+1. Create a D1 database and replace `database_id` in `wrangler.jsonc`.
+2. Run `npm install` and `npm run db:migrate:remote`.
+3. Store the Telegram credentials as Worker secrets:
+
+```sh
+wrangler secret put TELEGRAM_BOT_TOKEN
+wrangler secret put TELEGRAM_WEBHOOK_SECRET
 ```
 
-Until the release workflow can run, place a manually verified package and its
-matching `.sha256` file in the same versioned path. Never overwrite an existing
-version directory.
+4. Deploy with `npm run deploy`.
+5. Configure Telegram to post to
+   `https://tunnel-agent.mehrnet.com/api/telegram/webhook` with the same
+   webhook secret.
+6. Register one active amd64 and arm64 bundle in `bundle_releases`. The
+   installer rejects enrollment until an exact release archive and SHA-256 are
+   registered.
 
-The public site is a transport mirror, not the source of truth. MehrControl
-pins artifact URLs and SHA-256 values in each desired-state document. A domestic
-provider mirror may be listed first for `node_scope: domestic`, with this
-Cloudflare path as a lower-priority `any` fallback.
+`DOMESTIC_BOOTSTRAP_URL` is a non-secret Worker variable. Point it to an
+Iranian mirror of this exact `install.sh`; that mirror must expose the same
+versioned archive as `bundle_releases.domestic_url`.
 
-Do not publish a mutable `latest` binary for automated installations. A future
-`latest.json` can be an advisory catalog only; every node still receives an
-exact version and checksum from desired state.
+## Required secret handling
+
+Do not put a Telegram bot token in `wrangler.jsonc` or `.dev.vars.example`.
+`vars` are configuration values; `TELEGRAM_BOT_TOKEN` and
+`TELEGRAM_WEBHOOK_SECRET` must be configured as encrypted Worker secrets.

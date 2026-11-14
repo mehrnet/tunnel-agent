@@ -1,109 +1,108 @@
 # tunnel-agent
 
-`tunnel-agent` is a small Rust runtime for declared tunnel contracts. It replaces
-the Python control loop around the existing HPNSSH, Jet, and WSTunnel deployment
-without reimplementing any tunnel protocol or changing an existing wire shape.
+`tunnel-agent` is a low-footprint Rust supervisor for declared tunnel lanes.
+It installs one immutable transport bundle under `/opt/tunnel-agent` and starts
+only the lanes selected in its local manifest. It does not SSH into hosts,
+discover topology, seed files peer-to-peer, or download a binary when a lane is
+toggled.
 
-The critical ownership boundary is:
+The product has one public origin:
 
-- A cluster owner chooses a transport contract for each lane and node role.
-- MehrControl compiles a node-specific manifest.
-- `tunnel-agent` validates it, explicitly installs pinned artifacts from ordered
-  mirrors, renders contract-owned configuration, and supervises the processes.
-- A running agent never polls peers, calls SSH/systemd, or downloads updates.
+```text
+https://tunnel-agent.mehrnet.com/
+```
 
-Legacy v1 raw `processes` manifests remain supported for staged migration.
+- `/api/*` is a Cloudflare Worker: Telegram webhook, ownership, clusters,
+  enrollment, immutable bundle metadata, and node documents in D1.
+- Every other path is a static asset: website, installer, versioned bundles,
+  and checksums.
 
-## Transport contracts
+## Static bundle
+
+A release archive contains every supported data-plane dependency for one Linux
+architecture:
+
+```text
+/opt/tunnel-agent/current/
+├── bin/tunnel-agent
+├── bin/wstunnel
+├── bin/rathole
+├── bin/trusttunnel_endpoint
+└── hpnssh/
+    ├── bin/hpnssh
+    ├── sbin/hpnsshd
+    └── libexec/
+```
+
+The installer verifies the archive SHA-256 received from the Worker before it
+publishes `/opt/tunnel-agent/releases/<version>` and atomically advances the
+`current` symlink. A tunnel toggle therefore only changes process selection;
+it never blocks on an artifact download.
+
+Domestic nodes receive an Iranian mirror URL first, then the static site as a
+verified fallback. Foreign nodes receive the static site directly. Mirrors
+always serve the same versioned archive and hash.
+
+## Contracts
 
 | Contract | Role | Purpose |
 | --- | --- | --- |
 | `hpnssh.forward.v1` | SSH initiator | HPNSSH remote SOCKS, remote TCP, or local SOCKS lane. |
-| `hpnssh.server.v1` | SSH server | Runs a prepared `hpnsshd` configuration. |
+| `hpnssh.server.v1` | SSH server | Runs a prepared HPN SSHD configuration. |
 | `wstunnel.server.v1` | WSTunnel server | TLS WSS listener with a restricted path prefix. |
-| `wstunnel.reverse.v1` | WSTunnel client | Reverse SOCKS or reverse fixed-TCP listener over WSS. |
+| `wstunnel.reverse.v1` | WSTunnel client | Reverse SOCKS or fixed-TCP listener over WSS. |
 | `rathole.service.v1` | Rathole server/client | Token-authenticated TCP service forwarding. |
 | `trusttunnel.endpoint.v1` | TrustTunnel endpoint | VPN endpoint with supplied settings and TLS host files. |
 
-TrustTunnel is an endpoint contract, not a generic inter-node reverse tunnel.
-Rathole has distinct server and client roles. Full role and configuration details
-are in [docs/CONTRACTS.md](docs/CONTRACTS.md).
+Full role and configuration details are in [docs/CONTRACTS.md](docs/CONTRACTS.md).
 
-## Artifact mirrors
+## Manifest versions
 
-Every artifact is versioned and SHA-256 pinned. Mirrors are explicitly scoped as
-`domestic`, `foreign`, or `any`; the agent never guesses a server's geography.
-A domestic node can therefore prefer a provider-hosted Iranian source while
-retaining `tunnel-agent.mehrnet.com` as a verified global fallback.
+- Version 1 is the legacy raw-process format.
+- Version 2 supports independently fetched, SHA-256-pinned artifacts during
+  migration only.
+- Version 3 is the production bundle format. It requires `bundle.root`, allows
+  typed contracts only, and resolves known transport IDs from the installed
+  `/opt/tunnel-agent/current` release.
 
 ```json
 {
-  "id": "wstunnel",
-  "version": "11.3.0",
-  "binary": "wstunnel",
-  "package": "binary",
-  "sha256": "<64-hex-package-sha256>",
-  "sources": [
-    {
-      "url": "https://iran-mirror.example/wstunnel-11.3.0-amd64",
-      "scope": "domestic",
-      "priority": 10
-    },
-    {
-      "url": "https://tunnel-agent.mehrnet.com/artifacts/wstunnel/11.3.0/linux-amd64",
-      "scope": "any",
-      "priority": 100
-    }
-  ]
+  "version": 3,
+  "node_scope": "domestic",
+  "bundle": { "root": "/opt/tunnel-agent/current" },
+  "tunnels": []
 }
 ```
 
-`sha256` covers the downloaded package. For a `tar_gz` package,
-`binary_sha256` can additionally pin the extracted binary. Files are installed
-atomically under `/var/lib/tunnel-agent/artifacts/<id>/<version>/`.
+## Telegram ownership flow
+
+`@TunnelOwnersBot` is the owner-facing control surface:
+
+```text
+/cluster_add w4r-canary
+/server_add w4r-canary domestic ir-6 2.144.4.192
+/server_add w4r-canary foreign de-1 138.199.236.120
+/install ir-6
+```
+
+A server can be attached to multiple clusters, but it must belong to at least
+one before `/install` can create a single-use enrollment grant. The API stores
+membership independently from the node record so the compiler can reject every
+host-level listener collision across all of that node's clusters.
+
+The bot token and webhook secret are Cloudflare Worker secrets. Do not place
+either in `wrangler.jsonc`, release assets, or Git history.
 
 ## Commands
 
 ```sh
-# No network and no process start.
-tunnel-agent validate --config /etc/tunnel-agent.json
-tunnel-agent plan --config /etc/tunnel-agent.json
-
-# Explicit artifact installation. This is the only agent command that accesses mirrors.
-tunnel-agent sync --config /etc/tunnel-agent.json
-
-# Render contract-owned files and supervise already-installed artifacts.
-tunnel-agent run --config /etc/tunnel-agent.json
+tunnel-agent validate --config /etc/tunnel-agent/manifest.json
+tunnel-agent plan --config /etc/tunnel-agent/manifest.json
+tunnel-agent run --config /etc/tunnel-agent/manifest.json
 ```
 
-`distribution/install.sh` is a small POSIX bootstrap intended for static hosting
-at `https://tunnel-agent.mehrnet.com/install.sh`. It requires an out-of-band
-package SHA-256 and accepts ordered source URLs. It never fetches an unverified
-`latest` binary.
-
-## Resource model
-
-- One single-thread Tokio runtime supervises every child on a host.
-- No one-thread-per-lane model, polling loop, shell probe, or peer seed task.
-- Child output is discarded by default; protocol logs remain protocol-owned.
-- Failed child processes use bounded exponential backoff.
-- It cannot remove HPNSSH/WSTunnel/Rathole data-plane cost. It replaces the
-  Python manager and lane guard overhead and removes their continual probes.
-
-## MehrControl integration
-
-`control-node` remains the generic node agent. It obtains this static artifact,
-writes the node-specific manifest and protected inputs, runs `tunnel-agent sync`,
-then manages `tunnel-agent run` as a daemon. `control-api` owns topology,
-secrets, health policy, rollout gates, and mirror selection. The runtime remains
-usable without MehrControl through plain local JSON and files.
-
-## Releases
-
-Tags matching `v*` build private GitHub Release assets for Linux `amd64` and
-`arm64`, statically linked with musl. `--version` contains the Git tag injected
-by CI. The Cloudflare static site mirrors exact immutable release assets; it
-must not replace desired-state pinning with a mutable binary URL.
+`sync` remains available only for legacy v2 manifests. It intentionally fails
+for v3 bundles because production lanes are preinstalled.
 
 ## Development
 
@@ -111,5 +110,11 @@ must not replace desired-state pinning with a mutable binary URL.
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test --locked
-cargo build --release
+
+cd distribution
+npm install
+npm run check
 ```
+
+Tags matching `v*` build musl `amd64` and `arm64` bundles in GitHub Actions.
+The static-site artifact is named `tunnel-agent-static-assets-vX.Y.Z`.
