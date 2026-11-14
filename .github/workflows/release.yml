@@ -22,9 +22,9 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-zigbuild
+          tool: cross
       - name: Build static binary
-        run: cargo zigbuild --locked --release --target "$TARGET"
+        run: cross build --locked --release --target "$TARGET"
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
