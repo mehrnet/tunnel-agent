@@ -56,6 +56,18 @@ fn rejects_duplicate_process_ids() {
 }
 
 #[test]
+fn rejects_a_foreign_bundle_seed_consumer() {
+    let raw = r#"{
+      "version": 3,
+      "node_scope": "foreign",
+      "bundle": {"root": "/opt/tunnel-agent/current"},
+      "agent": {"bundle_seed": {"source": "http://127.0.0.1:42022"}},
+      "tunnels": []
+    }"#;
+    assert!(parse_config(raw).is_err());
+}
+
+#[test]
 fn compiles_a_rathole_server_contract() {
     let config = Config {
         version: 2,

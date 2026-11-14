@@ -80,6 +80,46 @@ live connection. The next increment will render role-specific HPNSSH and
 WSTunnel control contracts, install the cluster trust material, and select the
 highest-priority healthy lane without mixing it with customer traffic.
 
+## Peer-Seeded Bundles
+
+Release updates use a separate, loopback-only HTTP protocol intended to run
+inside an established agent lane. It is not an HTTP service for customers and
+must never bind a public address.
+
+1. The release archive includes `bundle-index.json`, with each payload file's
+   path, SHA-256, exact size, and Unix mode. The index excludes itself to avoid
+   a recursive digest.
+2. Publication registers the archive SHA-256 and index SHA-256. Only an
+   enrolled foreign node can request the API-signed release document.
+3. `seed-serve` verifies that its current release matches the signed document,
+   then exposes `/v1/release`, `/v1/index`, and `/v1/blob/<sha256>` on a
+   loopback listener. It never serves arbitrary paths.
+4. A domestic node accepts only a signature made by the compiled API public
+   key. It checks the index hash, release version, architecture, every blob's
+   size and SHA-256, and every staged file before promotion.
+5. The domestic content cache is keyed by SHA-256. Unchanged files are reused
+   from the cache or the current indexed bundle, so a peer transfer contains
+   only new content.
+
+The optional domestic `agent.bundle_seed` setting automates polling after an
+agent lane maps the foreign seed service to the declared local URL:
+
+```json
+{
+  "bundle_seed": {
+    "source": "http://127.0.0.1:42022",
+    "poll_interval_secs": 300
+  }
+}
+```
+
+`source` must be exactly an unprivileged `127.0.0.1` or `[::1]` HTTP listener;
+the validator rejects public hosts, HTTPS URLs, paths, credentials, and
+privileged ports. It is valid only for a domestic v3 manifest. The offline
+domestic agent does not contact the API: after a verified changed release is
+activated, it stops its contracts and exits successfully, allowing its
+`Restart=always` systemd service to start the new binary.
+
 ## HPNSSH
 
 `hpnssh.forward.v1` runs an HPNSSH client. `direction` means the SSH forwarding
@@ -209,7 +249,8 @@ a substitute for HPNSSH, WSTunnel, or Rathole lanes.
 ## Rollout model
 
 1. Build domestic and foreign mirror entries for every immutable release bundle
-   with an exact version, checksum, manifest, and complete chunk set.
+   with an exact version, archive checksum, file inventory checksum, manifest,
+   and complete chunk set.
 2. Install the static agent bundle from the mirror selected for the node class.
 3. Deploy a v3 manifest containing only an additional canary lane to the
    owning node's desired document.
@@ -220,5 +261,6 @@ a substitute for HPNSSH, WSTunnel, or Rathole lanes.
    CPU, memory, reconnect, and throughput measurements.
 6. Move one production listener only after the canary meets a rollback threshold.
    Retain a disabled legacy definition until the observation window passes.
-7. Retire P2P deployment seeding only after domestic and global mirrors have
-   repeatedly passed failure and recovery tests.
+7. Enable peer-seeded updates only after management-lane isolation, signed
+   document delivery, cache reuse, rollback, and recovery tests pass. Retire
+   legacy deployment seeding only after peer and mirror recovery both pass.

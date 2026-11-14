@@ -1,6 +1,9 @@
 import { error, json, message, parseJson } from "./http";
 import type { Architecture, BundleActivation, BundleActivationEntry, BundleRow, Env, NodeClass } from "./models";
-import { activeBundle, requireGrant } from "./store";
+import { activeBundle, nodeById, requireGrant } from "./store";
+import { authorizeNode } from "./nodes";
+import { base64Url } from "./encoding";
+import { signApiPayload } from "./signing";
 import { BUNDLE_VERSION, equalSecret, filesOrigin, HEX_64, now, validArchitecture } from "./validation";
 
 function bundleTarget(architecture: Architecture): string {
@@ -34,9 +37,11 @@ function parseBundleEntry(
   const entry = rawEntry as Record<string, unknown>;
   const architecture = typeof entry.architecture === "string" ? entry.architecture : undefined;
   const sha256 = typeof entry.sha256 === "string" ? entry.sha256 : "";
+  const inventorySha256 = typeof entry.inventory_sha256 === "string" ? entry.inventory_sha256 : "";
   const publicUrl = typeof entry.public_url === "string" ? entry.public_url : "";
   const domesticUrl = entry.domestic_url;
-  if (!validArchitecture(architecture) || !expectedArchitectures.delete(architecture) || !HEX_64.test(sha256)) return null;
+  if (!validArchitecture(architecture) || !expectedArchitectures.delete(architecture) ||
+    !HEX_64.test(sha256) || !HEX_64.test(inventorySha256)) return null;
 
   const expectedManifestPath = bundlePublicPath(version, architecture);
   if (publicUrl !== expectedManifestPath) return null;
@@ -44,7 +49,7 @@ function parseBundleEntry(
     !validDomesticBundleUrl(domesticUrl))) {
     return null;
   }
-  return { architecture, sha256, public_url: publicUrl, domestic_url: domesticUrl };
+  return { architecture, sha256, inventory_sha256: inventorySha256, public_url: publicUrl, domestic_url: domesticUrl };
 }
 
 function parseBundleActivation(body: Record<string, unknown> | null): BundleActivation | null {
@@ -110,10 +115,11 @@ export async function handleBundleActivation(request: Request, env: Env): Promis
         .bind(bundle.architecture),
       env.DB.prepare(
         `INSERT INTO bundle_releases
-          (version, architecture, sha256, public_url, domestic_url, active, created_at)
-         VALUES (?, ?, ?, ?, ?, 1, ?)
+          (version, architecture, sha256, inventory_sha256, public_url, domestic_url, active, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?)
          ON CONFLICT(version, architecture) DO UPDATE SET
            sha256 = excluded.sha256,
+           inventory_sha256 = excluded.inventory_sha256,
            public_url = excluded.public_url,
            domestic_url = excluded.domestic_url,
            active = 1,
@@ -122,6 +128,7 @@ export async function handleBundleActivation(request: Request, env: Env): Promis
         activation.version,
         bundle.architecture,
         bundle.sha256,
+        bundle.inventory_sha256,
         bundle.public_url,
         bundle.domestic_url,
         timestamp,
@@ -139,4 +146,37 @@ export async function handleBundleActivation(request: Request, env: Env): Promis
   ));
   await env.DB.batch(statements);
   return json({ ok: true, version: activation.version });
+}
+
+export async function handleBundleRelease(request: Request, env: Env, nodeId: string): Promise<Response> {
+  if (request.method !== "GET") return error("method not allowed", 405);
+  if (!await authorizeNode(request, env, nodeId)) return error("unauthorized", 401);
+  const node = await nodeById(env, nodeId);
+  if (!node || node.node_class !== "foreign" || node.status !== "enrolled") {
+    return error("only enrolled foreign nodes may fetch a release document", 403);
+  }
+  const architecture = new URL(request.url).searchParams.get("architecture") ?? undefined;
+  if (!validArchitecture(architecture)) return error("invalid architecture", 400);
+
+  const bundle = await activeBundle(env, architecture);
+  if (!bundle || !bundle.inventory_sha256 || !HEX_64.test(bundle.inventory_sha256)) {
+    return error(`no seedable ${architecture} tunnel-agent bundle`, 503);
+  }
+  const payload = JSON.stringify({
+    v: 1,
+    a: bundle.architecture,
+    b: bundle.version,
+    h: bundle.sha256,
+    i: bundle.inventory_sha256,
+  });
+  try {
+    return json({
+      envelope: JSON.stringify({
+        p: base64Url(new TextEncoder().encode(payload)),
+        s: await signApiPayload(env, payload),
+      }),
+    });
+  } catch (reason) {
+    return error(reason instanceof Error ? reason.message : "release signing failed", 503);
+  }
 }

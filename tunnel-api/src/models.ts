@@ -54,6 +54,7 @@ export interface BundleRow {
   version: string;
   architecture: Architecture;
   sha256: string;
+  inventory_sha256: string | null;
   public_url: string;
   domestic_url: string | null;
 }
@@ -72,6 +73,7 @@ export interface RelayDocumentRow extends DocumentRow {
 export interface BundleActivationEntry {
   architecture: Architecture;
   sha256: string;
+  inventory_sha256: string;
   public_url: string;
   domestic_url: string | null;
 }

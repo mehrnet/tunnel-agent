@@ -45,6 +45,17 @@ archive SHA-256 received from the Worker before it publishes
 symlink. A tunnel toggle therefore only changes process selection; it never
 blocks on an artifact download.
 
+Every new bundle also contains `bundle-index.json`: a deterministic inventory
+of every payload file's relative path, SHA-256, byte length, and mode. The
+publisher places the same index beside the archive parts and registers its
+SHA-256 with the API. An enrolled **foreign** node can retrieve a signed
+release document, cache it locally, and offer the current index and only its
+content-addressed files to a domestic peer over a management lane. A domestic
+node verifies the API signature and index digest before it requests a blob;
+each blob is verified before it enters `/opt/tunnel-agent/cache/blobs` and is
+copied into a staged release with its declared mode. The final release directory
+and `current` symlink are only published after all files validate.
+
 Domestic nodes receive an Iranian mirror URL first, then the static site as a
 verified fallback. Foreign nodes receive the static site directly. An Iranian
 mirror may serve either the same versioned manifest plus every referenced
@@ -116,6 +127,53 @@ tunnel-agent run --config /etc/tunnel-agent/manifest.json
 
 `sync` remains available only for legacy v2 manifests. It intentionally fails
 for v3 bundles because production lanes are preinstalled.
+
+### Peer-seeded updates
+
+The seeded update protocol is deliberately loopback-only. A management lane
+must map its encrypted/authenticated peer connection to the foreign node's
+loopback seed listener; no seed endpoint may bind publicly and no customer
+lane is used for control traffic.
+
+On the foreign node, first cache the signed active release document and expose
+the current bundle behind the management lane:
+
+```sh
+tunnel-agent cache-release-document
+tunnel-agent seed-serve --listen 127.0.0.1:42022
+```
+
+The domestic node consumes the mapped local endpoint. A direct one-shot test
+is possible with `seed-apply --source http://127.0.0.1:42022 --activate
+--restart-service tunnel-agent.service`. In production, add this to the
+domestic v3 manifest and run `agent --offline`:
+
+```json
+{
+  "agent": {
+    "poll_interval_secs": 60,
+    "max_active_lanes": 1,
+    "lanes": [],
+    "bundle_seed": {
+      "source": "http://127.0.0.1:42022",
+      "poll_interval_secs": 300
+    }
+  }
+}
+```
+
+The offline domestic agent has no API credentials and makes no API request. It
+polls only the loopback source, skips blobs already cached or unchanged from
+the current indexed release, activates a complete new release, stops its
+contracts, and exits. The existing `Restart=always` service then starts the
+new `current/bin/tunnel-agent`. A failed seed fetch or digest check leaves the
+existing release and contracts untouched.
+
+Agent lane definitions currently validate and select management topology, but
+they do not yet start HPNSSH/WSTunnel management transports. The seed protocol
+is ready for that next increment: wire an established selected lane to the
+foreign `seed-serve` loopback port, then point `bundle_seed.source` at its
+local mapped endpoint.
 
 ## Development
 

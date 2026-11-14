@@ -13,8 +13,9 @@ use serde::Deserialize;
 use tokio::time::{MissedTickBehavior, interval};
 
 use crate::{
-    manifest::{self, Config},
+    manifest::{self, Config, NodeScope},
     runtime::{self, spawn_plan, start_plan, stop_plan},
+    seed,
 };
 
 const MAX_DOCUMENT_BYTES: usize = 1_048_576;
@@ -156,14 +157,21 @@ fn fetch_document(
 }
 
 pub(crate) async fn reconcile(settings: AgentSettings) -> Result<(), String> {
-    let mut active_config = manifest::load_config(&settings.config_path)?;
+    let active_config = manifest::load_config(&settings.config_path)?;
     if active_config.version != 3 {
         return Err("agent requires a version 3 bootstrap manifest".to_owned());
     }
-    let poll_interval_secs = effective_poll_interval(&settings, &active_config)?;
     if settings.offline {
-        return runtime::run(manifest::compile(&active_config, &settings.state_dir)?).await;
+        return reconcile_offline(&settings, active_config).await;
     }
+    reconcile_online(&settings, active_config).await
+}
+
+async fn reconcile_online(
+    settings: &AgentSettings,
+    mut active_config: Config,
+) -> Result<(), String> {
+    let poll_interval_secs = effective_poll_interval(settings, &active_config)?;
     let api_url = read_secret_file(&settings.api_file, "API URL")?;
     if !api_url.starts_with("https://") {
         return Err("API URL must use HTTPS".to_owned());
@@ -204,12 +212,12 @@ pub(crate) async fn reconcile(settings: AgentSettings) -> Result<(), String> {
                             etag = Some(new_etag);
                             continue;
                         }
-                        match apply_document(&settings, &mut running, &active_config, active_revision, &document).await {
+                        match apply_document(settings, &mut running, &active_config, active_revision, &document).await {
                             Ok(config) => {
                                 active_config = config;
                                 active_revision = document.revision;
                                 etag = Some(new_etag);
-                                poll = polling_interval(effective_poll_interval(&settings, &active_config)?);
+                                poll = polling_interval(effective_poll_interval(settings, &active_config)?);
                             }
                             Err(error) => eprintln!(
                                 "document revision={} rejected; retaining revision={active_revision}: {error}",
@@ -219,6 +227,36 @@ pub(crate) async fn reconcile(settings: AgentSettings) -> Result<(), String> {
                     }
                     Err(error) => eprintln!("document refresh failed; retaining revision={active_revision}: {error}"),
                 }
+            }
+        }
+    }
+}
+
+async fn reconcile_offline(settings: &AgentSettings, config: Config) -> Result<(), String> {
+    let plan = manifest::compile(&config, &settings.state_dir)?;
+    let mut running = start_plan(plan).await?;
+    let Some(seed_config) = config.agent.bundle_seed.clone() else {
+        runtime::wait_for_shutdown().await;
+        stop_plan(&mut running).await;
+        return Ok(());
+    };
+    let mut updates = polling_interval(seed_config.poll_interval_secs);
+    let shutdown = runtime::wait_for_shutdown();
+    tokio::pin!(shutdown);
+    loop {
+        tokio::select! {
+            _ = &mut shutdown => {
+                stop_plan(&mut running).await;
+                return Ok(());
+            }
+            _ = updates.tick() => match apply_bundle_seed(&config).await {
+                Ok(result) if result.changed => {
+                    eprintln!("activated seeded bundle version={}; restarting agent", result.version);
+                    stop_plan(&mut running).await;
+                    return Ok(());
+                }
+                Ok(_) => {},
+                Err(error) => eprintln!("seed update failed; retaining active bundle: {error}"),
             }
         }
     }
@@ -257,6 +295,28 @@ async fn request_document(
     })
     .await
     .map_err(|error| format!("document refresh task failed: {error}"))?
+}
+
+async fn apply_bundle_seed(config: &Config) -> Result<seed::SeedResult, String> {
+    if config.node_scope != NodeScope::Domestic {
+        return Err("only domestic agents may apply a peer-seeded bundle".to_owned());
+    }
+    let source = config
+        .agent
+        .bundle_seed
+        .as_ref()
+        .ok_or_else(|| "agent has no bundle seed source".to_owned())?
+        .source
+        .clone();
+    let root = config
+        .bundle
+        .as_ref()
+        .and_then(|bundle| bundle.root.parent())
+        .ok_or_else(|| "bundle.root has no agent root directory".to_owned())?
+        .to_path_buf();
+    tokio::task::spawn_blocking(move || seed::apply(&root, &source, true))
+        .await
+        .map_err(|error| format!("seed update task failed: {error}"))?
 }
 
 async fn apply_document(

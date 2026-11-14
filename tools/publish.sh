@@ -116,8 +116,18 @@ stage_bundle() {
 
   archive_bytes=$(file_bytes "$source_archive")
   manifest="$site_bundle_dir/$archive.parts"
+  inventory="$site_bundle_dir/$archive.inventory.json"
   manifest_tmp=$(mktemp)
+  inventory_tmp=$(mktemp)
   parts_tmp=$(mktemp -d)
+
+  if ! tar -xOf "$source_archive" tunnel-agent/bundle-index.json > "$inventory_tmp"; then
+    echo "release archive is missing bundle-index.json: $archive" >&2
+    exit 1
+  fi
+  inventory_sha=$(sha256_file "$inventory_tmp")
+  install -D -m 0644 "$inventory_tmp" "$inventory"
+  rm -f "$inventory_tmp"
 
   # Do not publish the archive itself: an ARM64 release is larger than the
   # Cloudflare static-object limit. The installer verifies every chunk and
@@ -158,8 +168,8 @@ stage_bundle() {
   if [ "$bundle_count" -gt 0 ]; then
     printf ',\n' >> "$payload_file"
   fi
-  printf '    {"architecture":"%s","sha256":"%s","public_url":"%s","domestic_url":%s}' \
-    "$architecture" "$actual" "$public_url" "$domestic_json" >> "$payload_file"
+  printf '    {"architecture":"%s","sha256":"%s","inventory_sha256":"%s","public_url":"%s","domestic_url":%s}' \
+    "$architecture" "$actual" "$inventory_sha" "$public_url" "$domestic_json" >> "$payload_file"
   bundle_count=$((bundle_count + 1))
 }
 

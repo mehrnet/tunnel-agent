@@ -78,7 +78,7 @@ export async function requireGrant(env: Env, rawGrant: unknown): Promise<GrantRo
 
 export async function activeBundle(env: Env, architecture: Architecture): Promise<BundleRow | null> {
   return env.DB.prepare(
-    `SELECT version, architecture, sha256, public_url, domestic_url
+    `SELECT version, architecture, sha256, inventory_sha256, public_url, domestic_url
        FROM bundle_releases
       WHERE architecture = ? AND active = 1`,
   )

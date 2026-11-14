@@ -506,6 +506,9 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
                     .ok_or_else(|| "manifest version 3 requires bundle.root".to_owned())?,
             )?;
             agent_spec::validate(&config.agent)?;
+            if config.agent.bundle_seed.is_some() && config.node_scope != NodeScope::Domestic {
+                return Err("agent.bundle_seed is supported only on domestic nodes".to_owned());
+            }
         }
         version => {
             return Err(format!(

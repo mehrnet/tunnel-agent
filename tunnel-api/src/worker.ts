@@ -1,4 +1,4 @@
-import { handleBootstrap, handleBundleActivation } from "./bundles";
+import { handleBootstrap, handleBundleActivation, handleBundleRelease } from "./bundles";
 import { error, json } from "./http";
 import type { Env } from "./models";
 import { handleEnroll, handleNodeDocument } from "./nodes";
@@ -14,6 +14,8 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext): Pro
   if (url.pathname === "/api/v1/admin/bundles/activate") return handleBundleActivation(request, env);
   const document = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/document$/);
   if (document) return handleNodeDocument(request, env, document[1]);
+  const bundleRelease = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/bundle-release$/);
+  if (bundleRelease) return handleBundleRelease(request, env, bundleRelease[1]);
   const relayDocuments = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/relay-documents$/);
   if (relayDocuments) return handleRelayDocuments(request, env, relayDocuments[1]);
   return error("not found", 404);
