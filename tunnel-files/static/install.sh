@@ -1,25 +1,20 @@
 #!/bin/sh
 # Immutable tunnel-agent bundle bootstrap. Tunnel lanes never download binaries.
 set -eu
-
 : "${TUNNEL_AGENT_API:=https://tunnel-api.mehrnet.com/api}"
 : "${TUNNEL_AGENT_ENROLLMENT:?set TUNNEL_AGENT_ENROLLMENT from TunnelOwnersBot}"
-
 ROOT="${TUNNEL_AGENT_ROOT:-/opt/tunnel-agent}"
 ETC_DIR="${TUNNEL_AGENT_ETC_DIR:-/etc/tunnel-agent}"
 STATE_DIR="${TUNNEL_AGENT_STATE_DIR:-/opt/tunnel-agent/state}"
 SERVICE_NAME="${TUNNEL_AGENT_SERVICE_NAME:-tunnel-agent}"
-
 if [ "$(id -u)" -ne 0 ]; then
   echo "run the bootstrap as root (for example: curl ... | sudo sh)" >&2
   exit 1
 fi
-
 if ! command -v systemctl >/dev/null 2>&1; then
   echo "tunnel-agent bootstrap currently requires a systemd Linux host" >&2
   exit 1
 fi
-
 case "$(uname -m)" in
   x86_64|amd64) architecture=amd64 ;;
   aarch64|arm64) architecture=arm64 ;;
@@ -100,6 +95,13 @@ safe_https_url() {
     *[[:space:],\\]*|*'#'*) return 1 ;;
     *) return 0 ;;
   esac
+}
+
+bundle_complete() {
+  bundle_path=$1
+  [ -x "$bundle_path/bin/tunnel-agent" ] && [ -x "$bundle_path/hpnssh/bin/hpnssh" ] && \
+    [ -x "$bundle_path/hpnssh/sbin/hpnsshd" ] && [ -x "$bundle_path/bin/wstunnel" ] && \
+    [ -x "$bundle_path/bin/rathole" ] && [ -x "$bundle_path/bin/trusttunnel_endpoint" ]
 }
 
 is_chunk_manifest() {
@@ -270,9 +272,7 @@ stage="$tmpdir/stage"
 mkdir -p "$stage"
 tar -xzf "$package" -C "$stage"
 bundle_dir="$stage/tunnel-agent"
-if [ ! -x "$bundle_dir/bin/tunnel-agent" ] || [ ! -x "$bundle_dir/hpnssh/bin/hpnssh" ] || \
-   [ ! -x "$bundle_dir/hpnssh/sbin/hpnsshd" ] || [ ! -x "$bundle_dir/bin/wstunnel" ] || \
-   [ ! -x "$bundle_dir/bin/rathole" ] || [ ! -x "$bundle_dir/bin/trusttunnel_endpoint" ]; then
+if ! bundle_complete "$bundle_dir"; then
   echo "bundle is missing one or more required tunnel binaries" >&2
   exit 1
 fi
@@ -280,10 +280,19 @@ fi
 release_dir="$ROOT/releases/$bundle_version"
 install -d -m 0755 "$ROOT/releases" "$STATE_DIR" "$ETC_DIR"
 if [ -e "$release_dir" ]; then
-  echo "bundle version already exists: $release_dir" >&2
-  exit 1
+  if ! bundle_complete "$release_dir"; then
+    echo "existing bundle version is incomplete: $release_dir" >&2
+    exit 1
+  fi
+  if [ -s "$ETC_DIR/node-id" ] && [ -s "$ETC_DIR/node-token" ] && \
+     [ -s "$ETC_DIR/api-url" ] && [ -s "$ETC_DIR/manifest.json" ]; then
+    echo "tunnel-agent bundle ${bundle_version} is already installed and enrolled"
+    exit 0
+  fi
+  bundle_dir="$release_dir"
+else
+  mv "$bundle_dir" "$release_dir"
 fi
-mv "$bundle_dir" "$release_dir"
 ln -s "$release_dir" "$ROOT/current.next"
 mv -Tf "$ROOT/current.next" "$ROOT/current"
 
