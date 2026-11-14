@@ -1,4 +1,6 @@
-FROM rust:1.88-alpine3.21 AS build
+# WSTunnel v10.5.5 uses cfg_select!, which needs Rust 1.100. The agent itself
+# retains its lower Cargo MSRV; this is the reproducible bundle-builder version.
+FROM rust:1.100-alpine3.21 AS build
 
 ARG TUNNEL_AGENT_VERSION
 
