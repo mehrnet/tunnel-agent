@@ -26,6 +26,7 @@ RUN apk add --no-cache \
     binutils \
     build-base \
     cmake \
+    git \
     linux-headers \
     nasm \
     openssl-dev \
