@@ -52,25 +52,20 @@ Copy the exact `install.sh` and archive files to the Iranian mirror. A domestic
 bundle URL must be a versioned immutable URL containing the same bytes and
 SHA-256 as its global counterpart.
 
-Use the generated `.sha256` files to activate one bundle per architecture in
-D1. Do this as a single SQL batch so nodes never observe two active bundles:
+Use the release activation script rather than hand-writing D1 SQL. It validates
+both generated `.sha256` files, deploys the archive assets first, and then
+atomically marks one archive active per architecture:
 
-```sql
-BEGIN;
-UPDATE bundle_releases SET active = 0 WHERE architecture = 'amd64';
-INSERT INTO bundle_releases
-  (version, architecture, sha256, public_url, domestic_url, active, created_at)
-VALUES
-  ('vX.Y.Z', 'amd64', '<64-lowercase-hex>',
-   '/bundles/vX.Y.Z/tunnel-agent-vX.Y.Z-x86_64-unknown-linux-musl.tar.gz',
-   'https://iran-mirror.example/tunnel-agent/vX.Y.Z/tunnel-agent-vX.Y.Z-x86_64-unknown-linux-musl.tar.gz',
-   1, unixepoch());
-COMMIT;
+```sh
+BUNDLE_VERSION=vX.Y.Z \
+BUNDLE_SOURCE_DIR=/path/to/downloaded-release \
+DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
+./distribution/scripts/publish-bundle.sh
 ```
 
-Repeat for `arm64`. The `public_url` must be a relative static-asset path or a
-trusted HTTPS URL. `domestic_url` is only returned to domestic nodes, before
-the global bundle URL as a checksum-verified fallback.
+The domestic base URL is optional. When specified, it is returned only to
+domestic nodes, before the global static-asset URL as a checksum-verified
+fallback.
 
 ## 3. Enable the Telegram bot
 

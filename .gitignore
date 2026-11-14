@@ -3,4 +3,5 @@
 /distribution/.dev.vars
 /distribution/.wrangler/
 /distribution/node_modules/
+/distribution/public/bundles/
 

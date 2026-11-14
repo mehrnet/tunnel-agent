@@ -27,6 +27,16 @@ wrangler secret put TELEGRAM_WEBHOOK_SECRET
    installer rejects enrollment until an exact release archive and SHA-256 are
    registered.
 
+The scripted release activation verifies both archives, deploys them as static
+assets, then activates the matching D1 rows:
+
+```sh
+BUNDLE_VERSION=vX.Y.Z \
+BUNDLE_SOURCE_DIR=/path/to/release \
+DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
+./scripts/publish-bundle.sh
+```
+
 `DOMESTIC_BOOTSTRAP_URL` is an optional Worker secret used only to change the
 installer URL sent to domestic nodes. Point it to an Iranian mirror of this
 exact `install.sh`; that mirror must expose the same versioned archive as
