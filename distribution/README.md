@@ -23,9 +23,10 @@ wrangler secret put TELEGRAM_WEBHOOK_SECRET
 5. Configure Telegram to post to
    `https://tunnel-agent.mehrnet.com/api/telegram/webhook` with the same
    webhook secret.
-6. Register one active amd64 and arm64 bundle in `bundle_releases`. The
-   installer rejects enrollment until an exact release archive and SHA-256 are
-   registered.
+6. Set `BUNDLE_PUBLISH_TOKEN` as a Worker secret. The release publisher uses
+   the scoped activation endpoint to atomically register one active amd64 and
+   arm64 bundle. The installer rejects enrollment until exact release archives
+   and SHA-256 values are registered.
 
 The scripted release activation verifies both archives, deploys them as static
 assets, then activates the matching D1 rows:
@@ -33,6 +34,7 @@ assets, then activates the matching D1 rows:
 ```sh
 BUNDLE_VERSION=vX.Y.Z \
 BUNDLE_SOURCE_DIR=/path/to/release \
+BUNDLE_PUBLISH_TOKEN=... \
 DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
 ./scripts/publish-bundle.sh
 ```

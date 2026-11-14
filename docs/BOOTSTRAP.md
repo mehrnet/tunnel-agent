@@ -59,9 +59,16 @@ atomically marks one archive active per architecture:
 ```sh
 BUNDLE_VERSION=vX.Y.Z \
 BUNDLE_SOURCE_DIR=/path/to/downloaded-release \
+BUNDLE_PUBLISH_TOKEN=... \
 DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
 ./distribution/scripts/publish-bundle.sh
 ```
+
+`BUNDLE_PUBLISH_TOKEN` is a Worker secret. The publisher deploys static assets
+first, then invokes the narrow `/api/v1/admin/bundles/activate` endpoint. That
+endpoint only accepts the two expected architecture archive paths for one
+version and switches their D1 rows in one atomic batch; it is not a generic
+database or manifest API.
 
 The domestic base URL is optional. When specified, it is returned only to
 domestic nodes, before the global static-asset URL as a checksum-verified

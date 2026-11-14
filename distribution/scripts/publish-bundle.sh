@@ -4,6 +4,7 @@ set -eu
 
 : "${BUNDLE_VERSION:?set BUNDLE_VERSION, for example v0.4.0}"
 : "${BUNDLE_SOURCE_DIR:?set BUNDLE_SOURCE_DIR to the GitHub release download directory}"
+: "${BUNDLE_PUBLISH_TOKEN:?set BUNDLE_PUBLISH_TOKEN to the Worker activation secret}"
 
 case "$BUNDLE_VERSION" in
   ''|*[!0-9A-Za-z._+-]*)
@@ -25,6 +26,10 @@ if [ -n "$domestic_base" ]; then
       exit 2
       ;;
   esac
+  if printf '%s' "$domestic_base" | grep -Eq '[[:space:]"\\,]'; then
+    echo "DOMESTIC_BUNDLE_BASE_URL contains unsafe characters" >&2
+    exit 2
+  fi
 fi
 
 sha256_file() {
@@ -36,10 +41,6 @@ sha256_file() {
     echo "sha256sum or shasum is required" >&2
     exit 127
   fi
-}
-
-sql_literal() {
-  printf '%s' "$1" | sed "s/'/''/g"
 }
 
 stage_bundle() {
@@ -65,42 +66,39 @@ stage_bundle() {
   install -D -m 0644 "$source_checksum" "$site_bundle_dir/$archive.sha256"
 
   public_url="/bundles/$BUNDLE_VERSION/$archive"
-  domestic_sql=NULL
+  domestic_json=null
   if [ -n "$domestic_base" ]; then
     domestic_url="${domestic_base%/}/$archive"
-    domestic_sql="'$(sql_literal "$domestic_url")'"
+    domestic_json="\"$domestic_url\""
   fi
-  public_sql="'$(sql_literal "$public_url")'"
 
-  cat >> "$sql_file" <<EOF
-UPDATE bundle_releases SET active = 0 WHERE architecture = '$architecture';
-INSERT INTO bundle_releases
-  (version, architecture, sha256, public_url, domestic_url, active, created_at)
-VALUES
-  ('$BUNDLE_VERSION', '$architecture', '$actual', $public_sql, $domestic_sql, 1, unixepoch())
-ON CONFLICT(version, architecture) DO UPDATE SET
-  sha256 = excluded.sha256,
-  public_url = excluded.public_url,
-  domestic_url = excluded.domestic_url,
-  active = 1,
-  created_at = excluded.created_at;
-EOF
+  if [ "$bundle_count" -gt 0 ]; then
+    printf ',\n' >> "$payload_file"
+  fi
+  printf '    {"architecture":"%s","sha256":"%s","public_url":"%s","domestic_url":%s}' \
+    "$architecture" "$actual" "$public_url" "$domestic_json" >> "$payload_file"
+  bundle_count=$((bundle_count + 1))
 }
 
-sql_file=$(mktemp)
-trap 'rm -f "$sql_file"' EXIT HUP INT TERM
-printf 'BEGIN;\n' > "$sql_file"
+payload_file=$(mktemp)
+trap 'rm -f "$payload_file"' EXIT HUP INT TERM
 mkdir -p "$site_bundle_dir"
 
+printf '{"version":"%s","bundles":[\n' "$BUNDLE_VERSION" > "$payload_file"
+bundle_count=0
 stage_bundle amd64 x86_64-unknown-linux-musl
 stage_bundle arm64 aarch64-unknown-linux-musl
-printf 'COMMIT;\n' >> "$sql_file"
+printf '\n]}\n' >> "$payload_file"
 
 # Static files must exist before their D1 records can be returned to a node.
 (
   cd "$distribution_dir"
   npm run deploy
-  npx wrangler d1 execute tunnel-agent --remote --file "$sql_file"
+  curl --fail-with-body --silent --show-error \
+    --header "authorization: Bearer $BUNDLE_PUBLISH_TOKEN" \
+    --header "content-type: application/json" \
+    --data-binary "@$payload_file" \
+    "https://tunnel-agent.mehrnet.com/api/v1/admin/bundles/activate"
 )
 
 echo "published and activated $BUNDLE_VERSION"

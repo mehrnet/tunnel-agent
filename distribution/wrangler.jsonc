@@ -28,7 +28,7 @@
     "TELEGRAM_BOT_USERNAME": "TunnelOwnersBot",
     "ENROLLMENT_TTL_SECONDS": "900"
   }
-  // Set TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, and optionally
-  // DOMESTIC_BOOTSTRAP_URL with `wrangler secret put`; no credential belongs
-  // in vars, this file, or source control.
+  // Set TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, BUNDLE_PUBLISH_TOKEN,
+  // and optionally DOMESTIC_BOOTSTRAP_URL with `wrangler secret put`; no
+  // credential belongs in vars, this file, or source control.
 }

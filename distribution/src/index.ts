@@ -7,6 +7,7 @@ export interface Env {
   ENROLLMENT_TTL_SECONDS: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
+  BUNDLE_PUBLISH_TOKEN?: string;
 }
 
 type NodeClass = "domestic" | "foreign";
@@ -51,6 +52,18 @@ interface DocumentRow {
   updated_at: number;
 }
 
+interface BundleActivationEntry {
+  architecture: Architecture;
+  sha256: string;
+  public_url: string;
+  domestic_url: string | null;
+}
+
+interface BundleActivation {
+  version: string;
+  bundles: BundleActivationEntry[];
+}
+
 interface TelegramUpdate {
   update_id: number;
   message?: {
@@ -63,6 +76,7 @@ interface TelegramUpdate {
 const BUNDLE_ROOT = "/opt/tunnel-agent/current";
 const NODE_NAME = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;
 const HEX_64 = /^[a-f0-9]{64}$/;
+const BUNDLE_VERSION = /^[0-9A-Za-z._+-]+$/;
 
 function now(): number {
   return Math.floor(Date.now() / 1000);
@@ -96,6 +110,48 @@ function validNodeClass(value: string | undefined): value is NodeClass {
 
 function validArchitecture(value: string | undefined): value is Architecture {
   return value === "amd64" || value === "arm64";
+}
+
+function bundleTarget(architecture: Architecture): string {
+  return architecture === "amd64" ? "x86_64-unknown-linux-musl" : "aarch64-unknown-linux-musl";
+}
+
+function bundlePublicPath(version: string, architecture: Architecture): string {
+  return `/bundles/${version}/tunnel-agent-${version}-${bundleTarget(architecture)}.tar.gz`;
+}
+
+function validDomesticBundleUrl(value: string, expectedPath: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash &&
+      url.pathname.endsWith(expectedPath) && !/[\s,]/.test(value);
+  } catch {
+    return false;
+  }
+}
+
+function parseBundleActivation(body: Record<string, unknown> | null): BundleActivation | null {
+  const version = typeof body?.version === "string" ? body.version : "";
+  if (!BUNDLE_VERSION.test(version) || !Array.isArray(body?.bundles) || body.bundles.length !== 2) return null;
+
+  const expectedArchitectures = new Set<Architecture>(["amd64", "arm64"]);
+  const bundles: BundleActivationEntry[] = [];
+  for (const rawEntry of body.bundles) {
+    if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) return null;
+    const entry = rawEntry as Record<string, unknown>;
+    const architecture = typeof entry.architecture === "string" ? entry.architecture : undefined;
+    const sha256 = typeof entry.sha256 === "string" ? entry.sha256 : "";
+    const publicUrl = typeof entry.public_url === "string" ? entry.public_url : "";
+    const domesticUrl = entry.domestic_url;
+    if (!validArchitecture(architecture) || !expectedArchitectures.delete(architecture) || !HEX_64.test(sha256)) return null;
+    const expectedPath = bundlePublicPath(version, architecture);
+    if (publicUrl !== expectedPath) return null;
+    if (domesticUrl !== null && (typeof domesticUrl !== "string" || !validDomesticBundleUrl(domesticUrl, expectedPath))) {
+      return null;
+    }
+    bundles.push({ architecture, sha256, public_url: publicUrl, domestic_url: domesticUrl });
+  }
+  return expectedArchitectures.size === 0 ? { version, bundles } : null;
 }
 
 function nodeManifest(nodeClass: NodeClass): string {
@@ -244,7 +300,7 @@ function bootstrapEnv(bundle: BundleRow, nodeClass: NodeClass, origin: string): 
   if (sources.some((source) => !source.startsWith("https://") || /[\s,]/.test(source))) {
     throw new Error("bundle registry has invalid source URL");
   }
-  if (!/^[0-9A-Za-z._+-]+$/.test(bundle.version)) {
+  if (!BUNDLE_VERSION.test(bundle.version)) {
     throw new Error("bundle registry has invalid version");
   }
   return [
@@ -359,6 +415,56 @@ async function handleNodeDocument(request: Request, env: Env, nodeId: string): P
       etag,
     },
   });
+}
+
+async function handleBundleActivation(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return error("method not allowed", 405);
+  const authorization = request.headers.get("authorization");
+  const token = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : null;
+  if (!equalSecret(token, env.BUNDLE_PUBLISH_TOKEN)) return error("unauthorized", 401);
+
+  const activation = parseBundleActivation(await parseJson(request));
+  if (!activation) return error("invalid bundle activation payload", 400);
+
+  const timestamp = now();
+  const statements: D1PreparedStatement[] = [];
+  for (const bundle of activation.bundles) {
+    statements.push(
+      env.DB.prepare("UPDATE bundle_releases SET active = 0 WHERE architecture = ? AND active = 1")
+        .bind(bundle.architecture),
+      env.DB.prepare(
+        `INSERT INTO bundle_releases
+          (version, architecture, sha256, public_url, domestic_url, active, created_at)
+         VALUES (?, ?, ?, ?, ?, 1, ?)
+         ON CONFLICT(version, architecture) DO UPDATE SET
+           sha256 = excluded.sha256,
+           public_url = excluded.public_url,
+           domestic_url = excluded.domestic_url,
+           active = 1,
+           created_at = excluded.created_at`,
+      ).bind(
+        activation.version,
+        bundle.architecture,
+        bundle.sha256,
+        bundle.public_url,
+        bundle.domestic_url,
+        timestamp,
+      ),
+    );
+  }
+  statements.push(
+    env.DB.prepare(
+      `INSERT INTO audit_events (id, owner_id, node_id, cluster_id, action, detail_json, created_at)
+       VALUES (?, NULL, NULL, NULL, ?, ?, ?)`,
+    ).bind(
+      crypto.randomUUID(),
+      "bundle.activated",
+      JSON.stringify({ version: activation.version, architectures: activation.bundles.map((bundle) => bundle.architecture) }),
+      timestamp,
+    ),
+  );
+  await env.DB.batch(statements);
+  return json({ ok: true, version: activation.version });
 }
 
 async function createEnrollmentGrant(env: Env, node: NodeRow): Promise<string> {
@@ -540,6 +646,7 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext): Pro
   if (url.pathname === "/api/telegram/webhook") return handleTelegram(request, env, ctx);
   if (url.pathname === "/api/v1/bootstrap") return handleBootstrap(request, env);
   if (url.pathname === "/api/v1/enroll") return handleEnroll(request, env);
+  if (url.pathname === "/api/v1/admin/bundles/activate") return handleBundleActivation(request, env);
   const document = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/document$/);
   if (document) return handleNodeDocument(request, env, document[1]);
   return error("not found", 404);
