@@ -126,7 +126,8 @@ decode_capsule() {
     value=$(base62_number "$block") || return 1
     [ "$value" -le 1099511627775 ] || return 1
     for shift in 32 24 16 8 0; do
-      byte=$(( (value >> shift) & 255 )); printf "\\$(printf '%03o' "$byte")" >> "$raw"
+      byte=$(( (value >> shift) & 255 )); octal=$(printf '%03o' "$byte")
+      printf '%b' "\\$octal" >> "$raw"
     done
   done
   [ "$(file_bytes "$raw")" -ge "$length" ] || return 1
@@ -148,7 +149,10 @@ prepare_capsule() {
   envelope="$tmpdir/capsule-envelope"; payload="$tmpdir/capsule-payload"; signature="$tmpdir/capsule-signature"
   decode_capsule "$TUNNEL_AGENT_CAPSULE" "$envelope" || { echo "bootstrap capsule cannot be decoded" >&2; exit 1; }
   payload_b64=$(json_string p "$envelope"); signature_b64=$(json_string s "$envelope")
-  base64_url_decode "$payload_b64" "$payload" && base64_url_decode "$signature_b64" "$signature" || { echo "bootstrap capsule is malformed" >&2; exit 1; }
+  if ! base64_url_decode "$payload_b64" "$payload" || ! base64_url_decode "$signature_b64" "$signature"; then
+    echo "bootstrap capsule is malformed" >&2
+    exit 1
+  fi
   cat > "$tmpdir/capsule-public.pem" <<EOF
 -----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEA${CAPSULE_PUBLIC_KEY}
