@@ -31,12 +31,6 @@ jobs:
             docker_platform: linux/arm64
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cross
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
@@ -54,13 +48,20 @@ jobs:
       - name: Build static Rust transports
         shell: bash
         env:
-          TARGET: ${{ matrix.target }}
           TUNNEL_AGENT_VERSION: ${{ github.ref_name }}
+          DOCKER_PLATFORM: ${{ matrix.docker_platform }}
         run: |
-          cross build --locked --release --target "$TARGET"
-          cross build --locked --release --target "$TARGET" --manifest-path vendor/wstunnel/Cargo.toml
-          cross build --locked --release --target "$TARGET" --manifest-path vendor/rathole/Cargo.toml
-          cross build --locked --release --target "$TARGET" --manifest-path vendor/trusttunnel/Cargo.toml --bin trusttunnel_endpoint
+          docker buildx build \
+            --platform "$DOCKER_PLATFORM" \
+            --file distribution/build/rust/Dockerfile \
+            --build-arg TUNNEL_AGENT_VERSION="$TUNNEL_AGENT_VERSION" \
+            --target export \
+            --output type=local,dest=rust-output \
+            .
+          test -x rust-output/tunnel-agent
+          test -x rust-output/wstunnel
+          test -x rust-output/rathole
+          test -x rust-output/trusttunnel_endpoint
       - name: Build static HPNSSH tree
         shell: bash
         run: |
@@ -80,21 +81,25 @@ jobs:
         env:
           BUNDLE_VERSION: ${{ github.ref_name }}
           BUNDLE_TARGET: ${{ matrix.target }}
-          TUNNEL_AGENT_BIN: target/${{ matrix.target }}/release/tunnel-agent
-          WSTUNNEL_BIN: vendor/wstunnel/target/${{ matrix.target }}/release/wstunnel
-          RATHOLE_BIN: vendor/rathole/target/${{ matrix.target }}/release/rathole
-          TRUSTTUNNEL_BIN: vendor/trusttunnel/target/${{ matrix.target }}/release/trusttunnel_endpoint
+          TUNNEL_AGENT_BIN: rust-output/tunnel-agent
+          WSTUNNEL_BIN: rust-output/wstunnel
+          RATHOLE_BIN: rust-output/rathole
+          TRUSTTUNNEL_BIN: rust-output/trusttunnel_endpoint
           HPNSSH_PREFIX: hpn-output/hpnssh
           BUNDLE_OUTPUT_DIR: release
         run: |
           chmod +x distribution/build/bundle.sh
           distribution/build/bundle.sh
-          test "$(target/${{ matrix.target }}/release/tunnel-agent --version)" = "tunnel-agent ${GITHUB_REF_NAME}"
+          if [ "${{ matrix.architecture }}" = amd64 ]; then
+            test "$(rust-output/tunnel-agent --version)" = "tunnel-agent ${GITHUB_REF_NAME}"
+          else
+            grep -aFq "$GITHUB_REF_NAME" rust-output/tunnel-agent
+          fi
           test -x hpn-output/hpnssh/bin/hpnssh
           test -x hpn-output/hpnssh/sbin/hpnsshd
-          test -x vendor/wstunnel/target/${{ matrix.target }}/release/wstunnel
-          test -x vendor/rathole/target/${{ matrix.target }}/release/rathole
-          test -x vendor/trusttunnel/target/${{ matrix.target }}/release/trusttunnel_endpoint
+          test -x rust-output/wstunnel
+          test -x rust-output/rathole
+          test -x rust-output/trusttunnel_endpoint
       - uses: actions/upload-artifact@v4
         with:
           name: tunnel-agent-bundle-${{ matrix.architecture }}

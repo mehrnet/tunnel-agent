@@ -1,0 +1,6 @@
+.git
+target
+vendor/**/.git
+vendor/**/target
+distribution/node_modules
+distribution/.wrangler
