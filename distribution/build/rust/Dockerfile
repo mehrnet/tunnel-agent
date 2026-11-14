@@ -31,7 +31,7 @@ RUN OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 TUNNEL_AGENT_VERSION="$TUNNEL_AGENT
       vendor/trusttunnel/target/release/trusttunnel_endpoint
 
 FROM scratch AS export
-COPY --from=build /src/tunnel-agent/target/release/tunnel-agent /out/tunnel-agent
-COPY --from=build /src/tunnel-agent/vendor/wstunnel/target/release/wstunnel /out/wstunnel
-COPY --from=build /src/tunnel-agent/vendor/rathole/target/release/rathole /out/rathole
-COPY --from=build /src/tunnel-agent/vendor/trusttunnel/target/release/trusttunnel_endpoint /out/trusttunnel_endpoint
+COPY --from=build /src/tunnel-agent/target/release/tunnel-agent /tunnel-agent
+COPY --from=build /src/tunnel-agent/vendor/wstunnel/target/release/wstunnel /wstunnel
+COPY --from=build /src/tunnel-agent/vendor/rathole/target/release/rathole /rathole
+COPY --from=build /src/tunnel-agent/vendor/trusttunnel/target/release/trusttunnel_endpoint /trusttunnel_endpoint
