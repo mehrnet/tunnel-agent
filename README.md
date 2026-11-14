@@ -118,3 +118,6 @@ npm run check
 
 Tags matching `v*` build musl `amd64` and `arm64` bundles in GitHub Actions.
 The static-site artifact is named `tunnel-agent-static-assets-vX.Y.Z`.
+
+The complete Cloudflare, bundle mirror, Telegram, and W4R canary sequence is in
+[docs/BOOTSTRAP.md](docs/BOOTSTRAP.md).
