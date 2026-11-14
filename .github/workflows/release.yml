@@ -24,9 +24,11 @@ jobs:
           - architecture: amd64
             runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
+            docker_platform: linux/amd64
           - architecture: arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-latest
             target: aarch64-unknown-linux-musl
+            docker_platform: linux/arm64
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -35,6 +37,10 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cross
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v3
       - name: Checkout pinned transport sources
         shell: bash
         run: |
@@ -58,16 +64,17 @@ jobs:
       - name: Build static HPNSSH tree
         shell: bash
         run: |
-          docker build \
+          docker buildx build \
+            --platform "${DOCKER_PLATFORM}" \
             --file distribution/build/hpn/Dockerfile \
             --build-arg HPN_COMMIT="$HPN_COMMIT" \
             --target export \
-            --tag tunnel-agent-hpn-export \
+            --output type=local,dest=hpn-output \
             .
-          container=$(docker create tunnel-agent-hpn-export /hpnssh/bin/hpnssh -V)
-          mkdir -p hpn-output
-          docker cp "$container:/hpnssh" hpn-output/hpnssh
-          docker rm "$container"
+          test -x hpn-output/hpnssh/bin/hpnssh
+          test -x hpn-output/hpnssh/sbin/hpnsshd
+        env:
+          DOCKER_PLATFORM: ${{ matrix.docker_platform }}
       - name: Assemble immutable bundle
         shell: bash
         env:
