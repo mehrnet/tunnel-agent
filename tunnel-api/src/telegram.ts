@@ -169,7 +169,12 @@ async function handleBotCommand(env: Env, update: TelegramUpdate): Promise<void>
   const parts = incoming.text.trim().split(/\s+/);
   const command = parts.shift()?.split("@", 1)[0].toLowerCase();
   const owner = await ownerForTelegram(env, incoming.from.id, incoming.from.username);
-  await telegramReply(env, incoming.chat.id, await commandResponse(env, owner, command, parts));
+  try {
+    await telegramReply(env, incoming.chat.id, await commandResponse(env, owner, command, parts));
+  } catch (reason) {
+    const detail = reason instanceof Error ? reason.message : "unknown error";
+    await telegramReply(env, incoming.chat.id, `Cannot complete this command: ${detail}`);
+  }
 }
 
 export async function handleTelegram(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

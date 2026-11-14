@@ -11,6 +11,7 @@ export interface Env {
   CAPSULE_SIGNING_PRIVATE_KEY?: string;
   CLUSTER_CONTROL_KEY_ENCRYPTION_KEY?: string;
   DOMESTIC_CAPSULE_TTL_SECONDS?: string;
+  DOMESTIC_CAPSULE_BUNDLE_VERSION?: string;
 }
 
 export type NodeClass = "domestic" | "foreign";

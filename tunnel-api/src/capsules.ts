@@ -29,6 +29,7 @@ export async function issueDomesticCapsule(env: Env, node: NodeRow): Promise<str
   if (!amd64 || !arm64 || relays.length === 0) {
     throw new Error("domestic offline bootstrap requires active bundles and at least one foreign relay address");
   }
+  requireDomesticBundles(env, amd64, arm64);
   const payload = JSON.stringify({
     v: 1,
     e: now() + capsuleTtl(env),
@@ -46,6 +47,14 @@ export async function issueDomesticCapsule(env: Env, node: NodeRow): Promise<str
     l: relays.map(relayEndpoint),
   });
   return base62Capsule(JSON.stringify({ p: base64Url(new TextEncoder().encode(payload)), s: await sign(env, payload) }));
+}
+
+function requireDomesticBundles(env: Env, amd64: BundleRow, arm64: BundleRow): void {
+  const expected = env.DOMESTIC_CAPSULE_BUNDLE_VERSION?.trim();
+  if (!expected || amd64.version !== expected || arm64.version !== expected ||
+    !amd64.domestic_url || !arm64.domestic_url) {
+    throw new Error("domestic bootstrap is awaiting matching active Iranian mirror bundles");
+  }
 }
 
 function capsuleTtl(env: Env): number {
