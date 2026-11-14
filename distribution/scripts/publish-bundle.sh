@@ -83,6 +83,7 @@ stage_bundle() {
 payload_file=$(mktemp)
 trap 'rm -f "$payload_file"' EXIT HUP INT TERM
 mkdir -p "$site_bundle_dir"
+install -D -m 0755 "$distribution_dir/install.sh" "$distribution_dir/public/install.sh"
 
 printf '{"version":"%s","bundles":[\n' "$BUNDLE_VERSION" > "$payload_file"
 bundle_count=0
