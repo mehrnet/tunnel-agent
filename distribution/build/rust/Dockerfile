@@ -20,23 +20,20 @@ WORKDIR /src/tunnel-agent
 COPY . .
 
 # Building inside the target Alpine platform gives every transport the native
-# musl toolchain and static OpenSSL required by TrustTunnel.
+# Keep the current-generation transports together. TrustTunnel has an older,
+# compiler-constrained dependency graph and builds in its own Dockerfile.
 RUN OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 TUNNEL_AGENT_VERSION="$TUNNEL_AGENT_VERSION" \
       cargo build --locked --release \
     && OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 \
       cargo build --locked --release --manifest-path vendor/wstunnel/Cargo.toml \
     && OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 \
       cargo build --locked --release --manifest-path vendor/rathole/Cargo.toml \
-    && OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 \
-      cargo build --locked --release --manifest-path vendor/trusttunnel/Cargo.toml --bin trusttunnel_endpoint \
     && strip --strip-unneeded \
       target/release/tunnel-agent \
       vendor/wstunnel/target/release/wstunnel \
-      vendor/rathole/target/release/rathole \
-      vendor/trusttunnel/target/release/trusttunnel_endpoint
+      vendor/rathole/target/release/rathole
 
 FROM scratch AS export
 COPY --from=build /src/tunnel-agent/target/release/tunnel-agent /tunnel-agent
 COPY --from=build /src/tunnel-agent/vendor/wstunnel/target/release/wstunnel /wstunnel
 COPY --from=build /src/tunnel-agent/vendor/rathole/target/release/rathole /rathole
-COPY --from=build /src/tunnel-agent/vendor/trusttunnel/target/release/trusttunnel_endpoint /trusttunnel_endpoint
