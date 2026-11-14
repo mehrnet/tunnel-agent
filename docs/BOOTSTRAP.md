@@ -7,7 +7,7 @@ throughput thresholds.
 
 ## 1. Create the Cloudflare state
 
-From `distribution/`, create a D1 database and place the returned database ID
+From `cloudflare/`, create a D1 database and place the returned database ID
 in `wrangler.jsonc`:
 
 ```sh
@@ -68,7 +68,7 @@ BUNDLE_SOURCE_DIR=/path/to/downloaded-release \
 BUNDLE_PUBLISH_TOKEN=... \
 DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
 DOMESTIC_BUNDLE_FORMAT=archive \
-./distribution/scripts/publish-bundle.sh
+./cloudflare/scripts/publish-bundle.sh
 ```
 
 `BUNDLE_PUBLISH_TOKEN` is a Worker secret. The publisher deploys static assets

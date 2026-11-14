@@ -54,7 +54,7 @@ jobs:
         run: |
           docker buildx build \
             --platform "$DOCKER_PLATFORM" \
-            --file distribution/build/rust/Dockerfile \
+            --file cloudflare/build/rust/Dockerfile \
             --build-arg TUNNEL_AGENT_VERSION="$TUNNEL_AGENT_VERSION" \
             --target export \
             --output type=local,dest=rust-output \
@@ -69,7 +69,7 @@ jobs:
         run: |
           docker buildx build \
             --platform "$DOCKER_PLATFORM" \
-            --file distribution/build/trusttunnel/Dockerfile \
+            --file cloudflare/build/trusttunnel/Dockerfile \
             --build-arg RUST_TARGET="$TUNNEL_AGENT_TARGET" \
             --target export \
             --output type=local,dest=trusttunnel-output \
@@ -81,7 +81,7 @@ jobs:
         run: |
           docker buildx build \
             --platform "${DOCKER_PLATFORM}" \
-            --file distribution/build/hpn/Dockerfile \
+            --file cloudflare/build/hpn/Dockerfile \
             --build-arg HPN_COMMIT="$HPN_COMMIT" \
             --target export \
             --output type=local,dest=hpn-output \
@@ -102,8 +102,8 @@ jobs:
           HPNSSH_PREFIX: hpn-output/hpnssh
           BUNDLE_OUTPUT_DIR: release
         run: |
-          chmod +x distribution/build/bundle.sh
-          distribution/build/bundle.sh
+          chmod +x cloudflare/build/bundle.sh
+          cloudflare/build/bundle.sh
           if [ "${{ matrix.architecture }}" = amd64 ]; then
             test "$(rust-output/tunnel-agent --version)" = "tunnel-agent ${GITHUB_REF_NAME}"
           else
@@ -164,11 +164,11 @@ jobs:
       - name: Assemble static site and immutable bundle paths
         shell: bash
         run: |
-          mkdir -p "distribution/public/bundles/${GITHUB_REF_NAME}"
-          cp distribution/install.sh distribution/public/install.sh
-          cp release/* "distribution/public/bundles/${GITHUB_REF_NAME}/"
+          mkdir -p "cloudflare/public/bundles/${GITHUB_REF_NAME}"
+          cp cloudflare/install.sh cloudflare/public/install.sh
+          cp release/* "cloudflare/public/bundles/${GITHUB_REF_NAME}/"
       - uses: actions/upload-artifact@v4
         with:
           name: tunnel-agent-static-assets-${{ github.ref_name }}
-          path: distribution/public
+          path: cloudflare/public
           if-no-files-found: error

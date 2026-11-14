@@ -1,8 +1,8 @@
-# tunnel-agent distribution Worker
+# tunnel-agent Cloudflare service
 
 `wrangler.jsonc` deploys the complete `tunnel-agent.mehrnet.com` origin:
 
-- `/api/*` runs [src/index.ts](src/index.ts) with the D1 `DB` binding.
+- `/api/*` runs [src/worker.ts](src/worker.ts) with the D1 `DB` binding.
 - every other request is served from `public/` through the `ASSETS` binding.
 
 The Worker source deliberately has no transport binary and no bot token in its

@@ -116,7 +116,7 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test --locked
 
-cd distribution
+cd cloudflare
 npm install
 npm run check
 ```

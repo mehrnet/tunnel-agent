@@ -1,5 +1,5 @@
 {
-  "name": "tunnel-agent-worker",
+  "name": "tunnel-agent-cloudflare",
   "private": true,
   "type": "module",
   "scripts": {

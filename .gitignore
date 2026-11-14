@@ -1,9 +1,9 @@
 /target/
 /tunnel-agent
-/distribution/.dev.vars
-/distribution/.wrangler/
-/distribution/node_modules/
-/distribution/public/bundles/
-/distribution/public/install.sh
+/cloudflare/.dev.vars
+/cloudflare/.wrangler/
+/cloudflare/node_modules/
+/cloudflare/public/bundles/
+/cloudflare/public/install.sh
 /vendor/
 

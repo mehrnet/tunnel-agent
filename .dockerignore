@@ -2,5 +2,5 @@
 target
 vendor/**/.git
 vendor/**/target
-distribution/node_modules
-distribution/.wrangler
+cloudflare/node_modules
+cloudflare/.wrangler
