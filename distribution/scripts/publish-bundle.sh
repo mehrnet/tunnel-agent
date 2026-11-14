@@ -17,6 +17,7 @@ script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 distribution_dir=$(CDPATH='' cd -- "$script_dir/.." && pwd)
 site_bundle_dir="$distribution_dir/public/bundles/$BUNDLE_VERSION"
 domestic_base=${DOMESTIC_BUNDLE_BASE_URL:-}
+domestic_format=${DOMESTIC_BUNDLE_FORMAT:-manifest}
 chunk_bytes=${BUNDLE_CHUNK_BYTES:-20971520}
 
 case "$chunk_bytes" in
@@ -45,6 +46,13 @@ if [ -n "$domestic_base" ]; then
     echo "DOMESTIC_BUNDLE_BASE_URL contains unsafe characters" >&2
     exit 2
   fi
+  case "$domestic_format" in
+    manifest|archive) ;;
+    *)
+      echo "DOMESTIC_BUNDLE_FORMAT must be manifest or archive" >&2
+      exit 2
+      ;;
+  esac
 fi
 
 sha256_file() {
@@ -109,7 +117,10 @@ stage_bundle() {
   public_url="/bundles/$BUNDLE_VERSION/$archive.parts"
   domestic_json=null
   if [ -n "$domestic_base" ]; then
-    domestic_url="${domestic_base%/}/$archive.parts"
+    case "$domestic_format" in
+      manifest) domestic_url="${domestic_base%/}/$archive.parts" ;;
+      archive) domestic_url="${domestic_base%/}/$archive" ;;
+    esac
     domestic_json="\"$domestic_url\""
   fi
 

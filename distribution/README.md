@@ -37,14 +37,19 @@ BUNDLE_VERSION=vX.Y.Z \
 BUNDLE_SOURCE_DIR=/path/to/release \
 BUNDLE_PUBLISH_TOKEN=... \
 DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
+DOMESTIC_BUNDLE_FORMAT=archive \
 ./scripts/publish-bundle.sh
 ```
 
 `DOMESTIC_BOOTSTRAP_URL` is an optional Worker secret used only to change the
 installer URL sent to domestic nodes. Point it to an Iranian mirror of this
-exact `install.sh`; that mirror must expose the same versioned `.parts`
-manifest and every referenced chunk as `bundle_releases.domestic_url`. Until
-it is set, domestic nodes safely receive the official installer URL.
+exact `install.sh`; that mirror may expose either the same versioned `.parts`
+manifest and every referenced chunk or one full immutable `.tar.gz` archive
+with the registered final SHA-256. Until it is set, domestic nodes safely
+receive the official installer URL.
+
+`DOMESTIC_BUNDLE_FORMAT` defaults to `manifest`; set it to `archive` when the
+Iranian mirror serves the full release archive instead.
 
 ## Required secret handling
 

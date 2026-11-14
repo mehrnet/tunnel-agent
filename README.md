@@ -43,9 +43,10 @@ symlink. A tunnel toggle therefore only changes process selection; it never
 blocks on an artifact download.
 
 Domestic nodes receive an Iranian mirror URL first, then the static site as a
-verified fallback. Foreign nodes receive the static site directly. Mirrors
-always serve the same versioned manifest, every referenced chunk, and final
-archive hash.
+verified fallback. Foreign nodes receive the static site directly. An Iranian
+mirror may serve either the same versioned manifest plus every referenced
+chunk, or one full versioned `.tar.gz` release archive. Both forms are checked
+against the final archive hash from the Worker.
 
 ## Contracts
 

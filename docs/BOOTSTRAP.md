@@ -53,9 +53,10 @@ contents with Wrangler so the global static site serves:
 Cloudflare static assets are limited to 25 MiB, so each `.parts` manifest lists
 the SHA-256, byte count, and immutable chunk filenames for one archive. Copy
 the exact `install.sh`, each `.parts` manifest, and every chunk named by that
-manifest to the Iranian mirror. A domestic bundle URL must be a versioned,
-immutable manifest URL with chunks containing the same bytes and final archive
-SHA-256 as its global counterpart.
+manifest to the Iranian mirror. Alternatively, the Iranian mirror may serve
+one full immutable versioned `.tar.gz` release archive. A domestic bundle URL
+must identify either form and contain the same final archive SHA-256 as its
+global counterpart.
 
 Use the release activation script rather than hand-writing D1 SQL. It validates
 both generated `.sha256` files, deploys the manifest and chunk assets first,
@@ -66,6 +67,7 @@ BUNDLE_VERSION=vX.Y.Z \
 BUNDLE_SOURCE_DIR=/path/to/downloaded-release \
 BUNDLE_PUBLISH_TOKEN=... \
 DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
+DOMESTIC_BUNDLE_FORMAT=archive \
 ./distribution/scripts/publish-bundle.sh
 ```
 
@@ -77,7 +79,8 @@ database or manifest API.
 
 The domestic base URL is optional. When specified, it is returned only to
 domestic nodes, before the global static-asset URL as a checksum-verified
-fallback.
+fallback. `DOMESTIC_BUNDLE_FORMAT` defaults to `manifest`; use `archive` when
+the Iranian mirror serves the full immutable release archive.
 
 ## 3. Enable the Telegram bot
 

@@ -116,15 +116,19 @@ function bundleTarget(architecture: Architecture): string {
   return architecture === "amd64" ? "x86_64-unknown-linux-musl" : "aarch64-unknown-linux-musl";
 }
 
-function bundlePublicPath(version: string, architecture: Architecture): string {
-  return `/bundles/${version}/tunnel-agent-${version}-${bundleTarget(architecture)}.tar.gz.parts`;
+function bundleArchivePath(version: string, architecture: Architecture): string {
+  return `/bundles/${version}/tunnel-agent-${version}-${bundleTarget(architecture)}.tar.gz`;
 }
 
-function validDomesticBundleUrl(value: string, expectedPath: string): boolean {
+function bundlePublicPath(version: string, architecture: Architecture): string {
+  return `${bundleArchivePath(version, architecture)}.parts`;
+}
+
+function validDomesticBundleUrl(value: string, expectedManifestPath: string, expectedArchivePath: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash &&
-      url.pathname.endsWith(expectedPath) && !/[\s,]/.test(value);
+      (url.pathname.endsWith(expectedManifestPath) || url.pathname.endsWith(expectedArchivePath)) && !/[\s,]/.test(value);
   } catch {
     return false;
   }
@@ -144,9 +148,11 @@ function parseBundleActivation(body: Record<string, unknown> | null): BundleActi
     const publicUrl = typeof entry.public_url === "string" ? entry.public_url : "";
     const domesticUrl = entry.domestic_url;
     if (!validArchitecture(architecture) || !expectedArchitectures.delete(architecture) || !HEX_64.test(sha256)) return null;
-    const expectedPath = bundlePublicPath(version, architecture);
-    if (publicUrl !== expectedPath) return null;
-    if (domesticUrl !== null && (typeof domesticUrl !== "string" || !validDomesticBundleUrl(domesticUrl, expectedPath))) {
+    const expectedManifestPath = bundlePublicPath(version, architecture);
+    const expectedArchivePath = bundleArchivePath(version, architecture);
+    if (publicUrl !== expectedManifestPath) return null;
+    if (domesticUrl !== null && (typeof domesticUrl !== "string" ||
+      !validDomesticBundleUrl(domesticUrl, expectedManifestPath, expectedArchivePath))) {
       return null;
     }
     bundles.push({ architecture, sha256, public_url: publicUrl, domestic_url: domesticUrl });
