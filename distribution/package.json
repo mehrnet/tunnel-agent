@@ -5,7 +5,8 @@
   "scripts": {
     "check": "tsc --noEmit",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "prepare:assets": "cp install.sh public/install.sh",
+    "deploy": "npm run prepare:assets && wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply tunnel-agent --local",
     "db:migrate:remote": "wrangler d1 migrations apply tunnel-agent --remote"
   },

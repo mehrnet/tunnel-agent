@@ -4,4 +4,5 @@
 /distribution/.wrangler/
 /distribution/node_modules/
 /distribution/public/bundles/
+/distribution/public/install.sh
 
