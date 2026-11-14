@@ -26,6 +26,11 @@ case "$(uname -m)" in
   *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
+case "$TUNNEL_AGENT_API" in
+  https://*) ;;
+  *) echo "TUNNEL_AGENT_API must use HTTPS" >&2; exit 1 ;;
+esac
+
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
 
@@ -164,9 +169,11 @@ post_to "$TUNNEL_AGENT_API/v1/enroll" "$enroll_payload" "$enroll_response" text/
 
 node_id=$(read_env_value TUNNEL_AGENT_NODE_ID "$enroll_response")
 node_token=$(read_env_value TUNNEL_AGENT_NODE_TOKEN "$enroll_response")
+document_revision=$(read_env_value TUNNEL_AGENT_DOCUMENT_REVISION "$enroll_response")
 manifest_b64=$(read_env_value TUNNEL_AGENT_MANIFEST_B64 "$enroll_response")
 case "$node_id" in ????????-????-????-????-????????????) ;; *) echo "enrollment returned invalid node id" >&2; exit 1 ;; esac
 case "$node_token" in "$node_id".*) ;; *) echo "enrollment returned invalid node token" >&2; exit 1 ;; esac
+case "$document_revision" in ''|*[!0-9]*) echo "enrollment returned invalid document revision" >&2; exit 1 ;; esac
 if [ -z "$manifest_b64" ]; then
   echo "enrollment returned no tunnel manifest" >&2
   exit 1
@@ -174,7 +181,9 @@ fi
 printf '%s' "$manifest_b64" | base64 -d > "$ETC_DIR/manifest.json"
 printf '%s\n' "$node_id" > "$ETC_DIR/node-id"
 printf '%s\n' "$node_token" > "$ETC_DIR/node-token"
-chmod 0600 "$ETC_DIR/node-id" "$ETC_DIR/node-token" "$ETC_DIR/manifest.json" "$identity"
+printf '%s\n' "$TUNNEL_AGENT_API" > "$ETC_DIR/api-url"
+printf '%s\n' "$document_revision" > "$STATE_DIR/document-revision"
+chmod 0600 "$ETC_DIR/api-url" "$ETC_DIR/node-id" "$ETC_DIR/node-token" "$ETC_DIR/manifest.json" "$identity" "$STATE_DIR/document-revision"
 
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
@@ -185,7 +194,7 @@ After=network-online.target
 [Service]
 Type=simple
 ExecStartPre=${ROOT}/current/bin/tunnel-agent validate --config ${ETC_DIR}/manifest.json --state-dir ${STATE_DIR}
-ExecStart=${ROOT}/current/bin/tunnel-agent run --config ${ETC_DIR}/manifest.json --state-dir ${STATE_DIR}
+ExecStart=${ROOT}/current/bin/tunnel-agent agent --config ${ETC_DIR}/manifest.json --state-dir ${STATE_DIR} --api-file ${ETC_DIR}/api-url --node-id-file ${ETC_DIR}/node-id --node-token-file ${ETC_DIR}/node-token
 Restart=always
 RestartSec=5
 PrivateTmp=true

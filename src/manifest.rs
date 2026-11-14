@@ -427,10 +427,27 @@ pub struct ListenerClaim {
 pub fn load_config(path: &Path) -> Result<Config, String> {
     let raw = fs::read_to_string(path)
         .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-    let config: Config = serde_json::from_str(&raw)
-        .map_err(|error| format!("cannot parse {}: {error}", path.display()))?;
+    parse_config(&raw)
+}
+
+pub fn parse_config(raw: &str) -> Result<Config, String> {
+    let config: Config = serde_json::from_str(raw)
+        .map_err(|error| format!("cannot parse configuration: {error}"))?;
     validate_config(&config)?;
     Ok(config)
+}
+
+pub fn write_config_atomic(path: &Path, raw: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("configuration path {} has no parent", path.display()))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+    let temporary = path.with_extension("next");
+    fs::write(&temporary, raw)
+        .map_err(|error| format!("cannot write {}: {error}", temporary.display()))?;
+    fs::rename(&temporary, path)
+        .map_err(|error| format!("cannot publish {}: {error}", path.display()))
 }
 
 pub fn validate_config(config: &Config) -> Result<(), String> {

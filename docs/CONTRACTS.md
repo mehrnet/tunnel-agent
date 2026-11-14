@@ -29,6 +29,11 @@ or peer seeding before it could apply an update.
   participate in listener-conflict detection.
 - `run` never accesses the network. Legacy v2 `sync` is the only artifact-fetch
   command; v3 bundles deliberately disable it.
+- `agent` polls only its own authenticated document, using an ETag and a
+  60-second default interval. It accepts v3 manifests only, cannot change its
+  bootstrap node scope or bundle root, validates a new revision before stopping
+  the active plan, and retains the last working plan on fetch or validation
+  failure.
 
 ## HPNSSH
 
@@ -161,9 +166,11 @@ a substitute for HPNSSH, WSTunnel, or Rathole lanes.
 1. Build domestic and foreign mirror entries for every immutable release bundle
    with an exact version and checksum.
 2. Install the static agent bundle from the mirror selected for the node class.
-3. Deploy a v3 manifest containing only an additional canary lane.
-4. Run `validate`, then `plan`; verify the preinstalled bundle and listener
-   claims before starting it.
+3. Deploy a v3 manifest containing only an additional canary lane to the
+   owning node's desired document.
+4. The local `agent` fetches the new revision, runs the same validation and
+   plan compilation before stopping its existing contracts, then atomically
+   applies the new managed manifest.
 5. Run the canary beside the legacy tunnel on distinct ports and collect health,
    CPU, memory, reconnect, and throughput measurements.
 6. Move one production listener only after the canary meets a rollback threshold.

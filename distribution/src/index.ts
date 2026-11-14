@@ -320,6 +320,7 @@ async function handleEnroll(request: Request, env: Env): Promise<Response> {
     return message([
       `TUNNEL_AGENT_NODE_ID=${payload.node_id}`,
       `TUNNEL_AGENT_NODE_TOKEN=${payload.node_token}`,
+      `TUNNEL_AGENT_DOCUMENT_REVISION=${payload.document.revision}`,
       `TUNNEL_AGENT_MANIFEST_B64=${base64Utf8(payload.document.manifest_json)}`,
     ].join("\n") + "\n");
   }
@@ -347,7 +348,17 @@ async function handleNodeDocument(request: Request, env: Env, nodeId: string): P
     .bind(nodeId)
     .first<DocumentRow>();
   if (!document) return error("node has no desired document", 404);
-  return json(document);
+  const etag = `"${document.revision}"`;
+  if (request.headers.get("if-none-match") === etag) {
+    return new Response(null, { status: 304, headers: { etag, "cache-control": "no-store" } });
+  }
+  return new Response(JSON.stringify(document), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      etag,
+    },
+  });
 }
 
 async function createEnrollmentGrant(env: Env, node: NodeRow): Promise<string> {

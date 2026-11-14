@@ -102,14 +102,14 @@ Run one returned command on each matching host. The installer:
 2. downloads a complete architecture bundle from its prescribed mirror order;
 3. validates the SHA-256 before atomically publishing `/opt/tunnel-agent/current`;
 4. creates an HPNSSH identity; and
-5. calls `/api/v1/enroll` once, writes a v3 manifest, and starts
-   `tunnel-agent.service`.
+5. calls `/api/v1/enroll` once, writes a v3 manifest and revision marker, and
+   starts `tunnel-agent agent` through `tunnel-agent.service`.
 
-At this point the node has the runtime but no active lane. The next implementation
-step is the desired-state compiler and authenticated document reconciliation:
-it will write an enabled, typed WSTunnel (or HPNSSH) canary contract to both
-node documents. Do not manually edit production listeners or stop legacy
-tunnel services before that compiler applies and validates a unique canary port.
+At this point the node has the runtime but no active lane. The owner-side
+desired-state compiler will write an enabled, typed WSTunnel (or HPNSSH)
+canary contract to both node documents. The agent applies only a higher,
+validated revision. Do not manually edit production listeners or stop legacy
+tunnel services before that compiler validates a unique canary port.
 
 ## 5. Canary promotion criteria
 

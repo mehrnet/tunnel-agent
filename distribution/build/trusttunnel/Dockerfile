@@ -65,8 +65,20 @@ RUN case "$RUST_TARGET" in \
     esac \
     && rustup toolchain install 1.95 --profile minimal \
     && rustup target add --toolchain 1.95 "$RUST_TARGET" \
-    && printf '#!/bin/sh\nexec /opt/zig/zig cc -target %s "$@"\n' "$zig_target" > /usr/local/bin/zig-musl-cc \
-    && printf '#!/bin/sh\nexec /opt/zig/zig c++ -target %s "$@"\n' "$zig_target" > /usr/local/bin/zig-musl-cxx \
+    && printf '%s\n' \
+        '#!/bin/bash' \
+        'args=()' \
+        'skip_next=0' \
+        'for arg in "$@"; do' \
+        '  if (( skip_next )); then skip_next=0; continue; fi' \
+        '  case "$arg" in' \
+        '    --target) skip_next=1 ;;' \
+        '    --target=*) ;;' \
+        '    *) args+=("$arg") ;;' \
+        '  esac' \
+        'done' > /usr/local/bin/zig-musl-cc \
+    && printf 'exec /opt/zig/zig cc -target %s "%s{args[@]}"\n' "$zig_target" '$' >> /usr/local/bin/zig-musl-cc \
+    && sed 's/zig cc/zig c++/' /usr/local/bin/zig-musl-cc > /usr/local/bin/zig-musl-cxx \
     && chmod +x /usr/local/bin/zig-musl-cc /usr/local/bin/zig-musl-cxx
 
 ENV CC=/usr/local/bin/zig-musl-cc
