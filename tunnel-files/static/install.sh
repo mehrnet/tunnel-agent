@@ -35,12 +35,12 @@ tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
 
 fetch_to() {
-  url=$1
-  destination=$2
+  fetch_url=$1
+  fetch_destination=$2
   if command -v curl >/dev/null 2>&1; then
-    curl --fail --location --silent --show-error --output "$destination" "$url"
+    curl --fail --location --silent --show-error --output "$fetch_destination" "$fetch_url"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$destination" "$url"
+    wget -q -O "$fetch_destination" "$fetch_url"
   else
     echo "curl or wget is required for bootstrap" >&2
     return 127
