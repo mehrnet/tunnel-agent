@@ -18,6 +18,9 @@ sources, and release archives are excluded.
 - TypeScript source files are at most 300 physical lines.
 - New Rust source files are at most 500 physical lines.
 - Shell scripts are at most 350 physical lines.
+- `tunnel-files/static/install.sh` is the sole shell-size exception. It may
+  not exceed 450 lines because it must remain a self-contained, signed
+  bootstrap verifier; do not split it into an unauthenticated fetched helper.
 - TypeScript functions are at most 90 physical lines.
 - Rust functions are at most 120 physical lines; Clippy enforces this limit.
 - `tunnel-agent/src/manifest.rs` is the sole temporary size exception. It may

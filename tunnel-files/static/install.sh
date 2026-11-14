@@ -2,11 +2,14 @@
 # Immutable tunnel-agent bundle bootstrap. Tunnel lanes never download binaries.
 set -eu
 : "${TUNNEL_AGENT_API:=https://tunnel-api.mehrnet.com/api}"
-: "${TUNNEL_AGENT_ENROLLMENT:?set TUNNEL_AGENT_ENROLLMENT from TunnelOwnersBot}"
+if [ -z "${TUNNEL_AGENT_CAPSULE:-}" ]; then
+  : "${TUNNEL_AGENT_ENROLLMENT:?set TUNNEL_AGENT_ENROLLMENT from TunnelOwnersBot}"
+fi
 ROOT="${TUNNEL_AGENT_ROOT:-/opt/tunnel-agent}"
 ETC_DIR="${TUNNEL_AGENT_ETC_DIR:-/etc/tunnel-agent}"
 STATE_DIR="${TUNNEL_AGENT_STATE_DIR:-/opt/tunnel-agent/state}"
 SERVICE_NAME="${TUNNEL_AGENT_SERVICE_NAME:-tunnel-agent}"
+CAPSULE_PUBLIC_KEY='59O+lw4EIergZadHvVPK4RW688eIfIupFEBf0cdcTkc='
 if [ "$(id -u)" -ne 0 ]; then
   echo "run the bootstrap as root (for example: curl ... | sudo sh)" >&2
   exit 1
@@ -95,6 +98,70 @@ safe_https_url() {
     *[[:space:],\\]*|*'#'*) return 1 ;;
     *) return 0 ;;
   esac
+}
+
+base62_number() {
+  text=$1 number=0
+  while [ -n "$text" ]; do
+    character=${text%"${text#?}"}; text=${text#?}
+    case "$character" in
+      [0-9]) digit=$character ;;
+      [A-Z]) digit=$(( $(printf '%d' "'$character") - 55 )) ;;
+      [a-z]) digit=$(( $(printf '%d' "'$character") - 61 )) ;;
+      *) return 1 ;;
+    esac
+    number=$((number * 62 + digit))
+  done
+  printf '%s\n' "$number"
+}
+
+decode_capsule() {
+  encoded=${1#ta1}; output=$2
+  [ "${#encoded}" -ge 5 ] && [ $(( (${#encoded} - 5) % 7 )) -eq 0 ] || return 1
+  length=$(base62_number "$(printf '%s' "$encoded" | cut -c 1-5)") || return 1
+  [ "$length" -gt 0 ] && [ "$length" -le 32768 ] || return 1
+  body=$(printf '%s' "$encoded" | cut -c 6-); raw="$output.raw"; : > "$raw"
+  while [ -n "$body" ]; do
+    block=${body%"${body#???????}"}; body=${body#???????}
+    value=$(base62_number "$block") || return 1
+    [ "$value" -le 1099511627775 ] || return 1
+    for shift in 32 24 16 8 0; do
+      byte=$(( (value >> shift) & 255 )); printf "\\$(printf '%03o' "$byte")" >> "$raw"
+    done
+  done
+  [ "$(file_bytes "$raw")" -ge "$length" ] || return 1
+  dd if="$raw" of="$output" bs=1 count="$length" 2>/dev/null
+}
+
+base64_url_decode() {
+  value=$1 output=$2; value=$(printf '%s' "$value" | tr '_-' '/+')
+  case $((${#value} % 4)) in 0) ;; 2) value="${value}==" ;; 3) value="${value}=" ;; *) return 1;; esac
+  printf '%s' "$value" | base64 -d > "$output"
+}
+
+json_string() {
+  sed -n "s/.*\"$1\":\"\\([^\"]*\\)\".*/\\1/p" "$2" | sed -n '1p'
+}
+
+prepare_capsule() {
+  case "$TUNNEL_AGENT_CAPSULE" in ta1*) ;; *) echo "bootstrap capsule has an invalid prefix" >&2; exit 1;; esac
+  envelope="$tmpdir/capsule-envelope"; payload="$tmpdir/capsule-payload"; signature="$tmpdir/capsule-signature"
+  decode_capsule "$TUNNEL_AGENT_CAPSULE" "$envelope" || { echo "bootstrap capsule cannot be decoded" >&2; exit 1; }
+  payload_b64=$(json_string p "$envelope"); signature_b64=$(json_string s "$envelope")
+  base64_url_decode "$payload_b64" "$payload" && base64_url_decode "$signature_b64" "$signature" || { echo "bootstrap capsule is malformed" >&2; exit 1; }
+  cat > "$tmpdir/capsule-public.pem" <<EOF
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEA${CAPSULE_PUBLIC_KEY}
+-----END PUBLIC KEY-----
+EOF
+  openssl pkeyutl -verify -pubin -inkey "$tmpdir/capsule-public.pem" -rawin -in "$payload" -sigfile "$signature" >/dev/null 2>&1 || { echo "bootstrap capsule signature is invalid" >&2; exit 1; }
+  capsule_node_id=$(json_string n "$payload"); capsule_revision=$(sed -n 's/.*"i":\([0-9][0-9]*\).*/\1/p' "$payload" | sed -n '1p'); capsule_version=$(sed -n 's/.*"v":\([0-9][0-9]*\).*/\1/p' "$payload" | sed -n '1p')
+  case "$capsule_version:$capsule_node_id:$capsule_revision" in 1:????????-????-????-????-????????????:*) ;; *) echo "bootstrap capsule payload is invalid" >&2; exit 1;; esac
+  case "$architecture" in
+    amd64) bundle_version=$(json_string xv "$payload"); bundle_sha256=$(json_string xh "$payload"); bundle_urls=$(json_string xu "$payload") ;;
+    arm64) bundle_version=$(json_string av "$payload"); bundle_sha256=$(json_string ah "$payload"); bundle_urls=$(json_string au "$payload") ;;
+  esac
+  [ -n "$bundle_urls" ] || { echo "bootstrap capsule has no bundle mirror" >&2; exit 1; }
 }
 
 bundle_complete() {
@@ -210,13 +277,18 @@ read_env_value() {
   sed -n "s/^${key}=\([^[:space:]]*\)$/\1/p" "$file" | sed -n '1p'
 }
 
-bootstrap_response="$tmpdir/bootstrap.env"
-bootstrap_payload=$(printf '{"grant":"%s","architecture":"%s"}' "$TUNNEL_AGENT_ENROLLMENT" "$architecture")
-post_to "$TUNNEL_AGENT_API/v1/bootstrap" "$bootstrap_payload" "$bootstrap_response" text/x-tunnel-agent-env
-
-bundle_version=$(read_env_value TUNNEL_AGENT_BUNDLE_VERSION "$bootstrap_response")
-bundle_sha256=$(read_env_value TUNNEL_AGENT_BUNDLE_SHA256 "$bootstrap_response")
-bundle_urls=$(read_env_value TUNNEL_AGENT_BUNDLE_URLS "$bootstrap_response")
+if [ -n "${TUNNEL_AGENT_CAPSULE:-}" ]; then
+  prepare_capsule
+  agent_arguments='--offline'
+else
+  bootstrap_response="$tmpdir/bootstrap.env"
+  bootstrap_payload=$(printf '{"grant":"%s","architecture":"%s"}' "$TUNNEL_AGENT_ENROLLMENT" "$architecture")
+  post_to "$TUNNEL_AGENT_API/v1/bootstrap" "$bootstrap_payload" "$bootstrap_response" text/x-tunnel-agent-env
+  bundle_version=$(read_env_value TUNNEL_AGENT_BUNDLE_VERSION "$bootstrap_response")
+  bundle_sha256=$(read_env_value TUNNEL_AGENT_BUNDLE_SHA256 "$bootstrap_response")
+  bundle_urls=$(read_env_value TUNNEL_AGENT_BUNDLE_URLS "$bootstrap_response")
+  agent_arguments="--api-file ${ETC_DIR}/api-url --node-id-file ${ETC_DIR}/node-id --node-token-file ${ETC_DIR}/node-token"
+fi
 
 case "$bundle_version" in
   ''|*[!A-Za-z0-9._+-]*) echo "bootstrap returned invalid bundle version" >&2; exit 1 ;;
@@ -284,8 +356,8 @@ if [ -e "$release_dir" ]; then
     echo "existing bundle version is incomplete: $release_dir" >&2
     exit 1
   fi
-  if [ -s "$ETC_DIR/node-id" ] && [ -s "$ETC_DIR/node-token" ] && \
-     [ -s "$ETC_DIR/api-url" ] && [ -s "$ETC_DIR/manifest.json" ]; then
+  if [ -s "$ETC_DIR/node-id" ] && [ -s "$ETC_DIR/manifest.json" ] && \
+     { [ -n "${TUNNEL_AGENT_CAPSULE:-}" ] || { [ -s "$ETC_DIR/node-token" ] && [ -s "$ETC_DIR/api-url" ]; }; }; then
     echo "tunnel-agent bundle ${bundle_version} is already installed and enrolled"
     exit 0
   fi
@@ -301,29 +373,22 @@ identity="$ETC_DIR/identity_ed25519"
 if [ ! -s "$identity" ]; then
   "$ROOT/current/hpnssh/bin/hpnssh-keygen" -q -t ed25519 -N '' -f "$identity"
 fi
-public_key=$(tr -d '\n' < "$identity.pub")
-hostname=$(hostname 2>/dev/null | tr -cd 'A-Za-z0-9.-' || printf unknown)
-enroll_response="$tmpdir/enroll.env"
-enroll_payload=$(printf '{"grant":"%s","hostname":"%s","public_key":"%s"}' "$TUNNEL_AGENT_ENROLLMENT" "$hostname" "$public_key")
-post_to "$TUNNEL_AGENT_API/v1/enroll" "$enroll_payload" "$enroll_response" text/x-tunnel-agent-env
-
-node_id=$(read_env_value TUNNEL_AGENT_NODE_ID "$enroll_response")
-node_token=$(read_env_value TUNNEL_AGENT_NODE_TOKEN "$enroll_response")
-document_revision=$(read_env_value TUNNEL_AGENT_DOCUMENT_REVISION "$enroll_response")
-manifest_b64=$(read_env_value TUNNEL_AGENT_MANIFEST_B64 "$enroll_response")
-case "$node_id" in ????????-????-????-????-????????????) ;; *) echo "enrollment returned invalid node id" >&2; exit 1 ;; esac
-case "$node_token" in "$node_id".*) ;; *) echo "enrollment returned invalid node token" >&2; exit 1 ;; esac
-case "$document_revision" in ''|*[!0-9]*) echo "enrollment returned invalid document revision" >&2; exit 1 ;; esac
-if [ -z "$manifest_b64" ]; then
-  echo "enrollment returned no tunnel manifest" >&2
-  exit 1
+if [ -n "${TUNNEL_AGENT_CAPSULE:-}" ]; then
+  "$ROOT/current/bin/tunnel-agent" bootstrap-capsule --capsule "$TUNNEL_AGENT_CAPSULE" --etc-dir "$ETC_DIR" --state-dir "$STATE_DIR" --config "$ETC_DIR/manifest.json"
+  node_id=$capsule_node_id
+  chmod 0600 "$ETC_DIR/node-id" "$ETC_DIR/manifest.json" "$ETC_DIR/relay-state.json" "$ETC_DIR/cluster-control-authorized_keys" "$identity" "$STATE_DIR/document-revision"
+else
+  public_key=$(tr -d '\n' < "$identity.pub"); hostname=$(hostname 2>/dev/null | tr -cd 'A-Za-z0-9.-' || printf unknown); enroll_response="$tmpdir/enroll.env"
+  enroll_payload=$(printf '{"grant":"%s","hostname":"%s","public_key":"%s"}' "$TUNNEL_AGENT_ENROLLMENT" "$hostname" "$public_key")
+  post_to "$TUNNEL_AGENT_API/v1/enroll" "$enroll_payload" "$enroll_response" text/x-tunnel-agent-env
+  node_id=$(read_env_value TUNNEL_AGENT_NODE_ID "$enroll_response"); node_token=$(read_env_value TUNNEL_AGENT_NODE_TOKEN "$enroll_response"); document_revision=$(read_env_value TUNNEL_AGENT_DOCUMENT_REVISION "$enroll_response"); manifest_b64=$(read_env_value TUNNEL_AGENT_MANIFEST_B64 "$enroll_response")
+  case "$node_id" in ????????-????-????-????-????????????) ;; *) echo "enrollment returned invalid node id" >&2; exit 1 ;; esac
+  case "$node_token" in "$node_id".*) ;; *) echo "enrollment returned invalid node token" >&2; exit 1 ;; esac
+  case "$document_revision" in ''|*[!0-9]*) echo "enrollment returned invalid document revision" >&2; exit 1 ;; esac
+  [ -n "$manifest_b64" ] || { echo "enrollment returned no tunnel manifest" >&2; exit 1; }
+  printf '%s' "$manifest_b64" | base64 -d > "$ETC_DIR/manifest.json"; printf '%s\n' "$node_id" > "$ETC_DIR/node-id"; printf '%s\n' "$node_token" > "$ETC_DIR/node-token"; printf '%s\n' "$TUNNEL_AGENT_API" > "$ETC_DIR/api-url"; printf '%s\n' "$document_revision" > "$STATE_DIR/document-revision"
+  chmod 0600 "$ETC_DIR/api-url" "$ETC_DIR/node-id" "$ETC_DIR/node-token" "$ETC_DIR/manifest.json" "$identity" "$STATE_DIR/document-revision"
 fi
-printf '%s' "$manifest_b64" | base64 -d > "$ETC_DIR/manifest.json"
-printf '%s\n' "$node_id" > "$ETC_DIR/node-id"
-printf '%s\n' "$node_token" > "$ETC_DIR/node-token"
-printf '%s\n' "$TUNNEL_AGENT_API" > "$ETC_DIR/api-url"
-printf '%s\n' "$document_revision" > "$STATE_DIR/document-revision"
-chmod 0600 "$ETC_DIR/api-url" "$ETC_DIR/node-id" "$ETC_DIR/node-token" "$ETC_DIR/manifest.json" "$identity" "$STATE_DIR/document-revision"
 
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
@@ -334,7 +399,7 @@ After=network-online.target
 [Service]
 Type=simple
 ExecStartPre=${ROOT}/current/bin/tunnel-agent validate --config ${ETC_DIR}/manifest.json --state-dir ${STATE_DIR}
-ExecStart=${ROOT}/current/bin/tunnel-agent agent --config ${ETC_DIR}/manifest.json --state-dir ${STATE_DIR} --api-file ${ETC_DIR}/api-url --node-id-file ${ETC_DIR}/node-id --node-token-file ${ETC_DIR}/node-token
+ExecStart=${ROOT}/current/bin/tunnel-agent agent --config ${ETC_DIR}/manifest.json --state-dir ${STATE_DIR} ${agent_arguments}
 Restart=always
 RestartSec=5
 PrivateTmp=true

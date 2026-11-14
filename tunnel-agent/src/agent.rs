@@ -14,7 +14,7 @@ use tokio::time::{MissedTickBehavior, interval};
 
 use crate::{
     manifest::{self, Config},
-    runtime::{spawn_plan, start_plan, stop_plan},
+    runtime::{self, spawn_plan, start_plan, stop_plan},
 };
 
 const MAX_DOCUMENT_BYTES: usize = 1_048_576;
@@ -26,6 +26,7 @@ pub(crate) struct AgentSettings {
     pub(crate) node_id_file: PathBuf,
     pub(crate) node_token_file: PathBuf,
     pub(crate) poll_interval_secs: u64,
+    pub(crate) offline: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -158,6 +159,13 @@ pub(crate) async fn reconcile(settings: AgentSettings) -> Result<(), String> {
     if settings.poll_interval_secs < 5 {
         return Err("poll_interval_secs must be at least 5".to_owned());
     }
+    let mut active_config = manifest::load_config(&settings.config_path)?;
+    if active_config.version != 3 {
+        return Err("agent requires a version 3 bootstrap manifest".to_owned());
+    }
+    if settings.offline {
+        return runtime::run(manifest::compile(&active_config, &settings.state_dir)?).await;
+    }
     let api_url = read_secret_file(&settings.api_file, "API URL")?;
     if !api_url.starts_with("https://") {
         return Err("API URL must use HTTPS".to_owned());
@@ -166,10 +174,6 @@ pub(crate) async fn reconcile(settings: AgentSettings) -> Result<(), String> {
     let node_token = read_secret_file(&settings.node_token_file, "node token")?;
     validate_node_credentials(&node_id, &node_token)?;
 
-    let mut active_config = manifest::load_config(&settings.config_path)?;
-    if active_config.version != 3 {
-        return Err("agent requires a version 3 bootstrap manifest".to_owned());
-    }
     let initial_plan = manifest::compile(&active_config, &settings.state_dir)?;
     let mut running = start_plan(initial_plan).await?;
     fs::create_dir_all(&settings.state_dir)

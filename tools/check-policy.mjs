@@ -10,7 +10,10 @@ const limits = [
   { directory: "tools", extension: ".sh", maxLines: 350 },
   { directory: "tunnel-files/static", extension: ".sh", maxLines: 350 },
 ];
-const allowances = new Map([["tunnel-agent/src/manifest.rs", 1850]]);
+const allowances = new Map([
+  ["tunnel-agent/src/manifest.rs", 1850],
+  ["tunnel-files/static/install.sh", 450],
+]);
 const typeScriptFunctionLimit = 90;
 const failures = [];
 

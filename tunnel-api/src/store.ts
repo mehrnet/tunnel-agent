@@ -1,4 +1,4 @@
-import type { Architecture, AuditReferences, BundleRow, ClusterRow, Env, GrantRow, NodeRow, OwnerRow } from "./models";
+import type { Architecture, AuditReferences, BundleRow, ClusterRow, DocumentRow, Env, GrantRow, NodeRow, OwnerRow, RelayRow } from "./models";
 import { now, parseGrant, randomToken, sha256 } from "./validation";
 
 export async function audit(
@@ -78,6 +78,29 @@ export async function activeBundle(env: Env, architecture: Architecture): Promis
   )
     .bind(architecture)
     .first<BundleRow>();
+}
+
+export async function nodeClusters(env: Env, nodeId: string): Promise<ClusterRow[]> {
+  const rows = await env.DB.prepare(
+    `SELECT c.id, c.name FROM clusters c JOIN cluster_nodes cn ON cn.cluster_id = c.id
+      WHERE cn.node_id = ? ORDER BY c.name`,
+  ).bind(nodeId).all<ClusterRow>();
+  return rows.results;
+}
+
+export async function foreignRelayAddresses(env: Env, clusterId: string): Promise<RelayRow[]> {
+  const rows = await env.DB.prepare(
+    `SELECT n.address FROM nodes n JOIN cluster_nodes cn ON cn.node_id = n.id
+      WHERE cn.cluster_id = ? AND n.node_class = 'foreign' AND n.status != 'revoked' AND n.address IS NOT NULL
+      ORDER BY n.name`,
+  ).bind(clusterId).all<RelayRow>();
+  return rows.results;
+}
+
+export async function nodeDocument(env: Env, nodeId: string): Promise<DocumentRow | null> {
+  return env.DB.prepare(
+    "SELECT revision, manifest_json, updated_at FROM node_documents WHERE node_id = ?",
+  ).bind(nodeId).first<DocumentRow>();
 }
 
 export async function createEnrollmentGrant(env: Env, node: NodeRow): Promise<string> {

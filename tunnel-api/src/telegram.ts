@@ -1,3 +1,4 @@
+import { issueDomesticCapsule } from "./capsules";
 import { error, json } from "./http";
 import type { Env, NodeRow, OwnerRow, TelegramUpdate } from "./models";
 import { nodeManifest } from "./nodes";
@@ -116,6 +117,12 @@ async function installNode(env: Env, owner: OwnerRow, args: string[]): Promise<s
     return "Usage: /install <server>. The server must belong to at least one cluster.";
   }
 
+  if (node.node_class === "domestic") {
+    const capsule = await issueDomesticCapsule(env, node);
+    await audit(env, "node.domestic_capsule_created", {}, { ownerId: owner.id, nodeId: node.id });
+    return `Run one offline command on ${node.name}. It uses no central API after download.\n\n${domesticInstallCommand(env, capsule)}`;
+  }
+
   const grant = await createEnrollmentGrant(env, node);
   await audit(env, "node.enrollment_grant_created", { expires_in_seconds: env.ENROLLMENT_TTL_SECONDS }, {
     ownerId: owner.id,
@@ -132,6 +139,14 @@ function installCommand(env: Env, node: NodeRow, grant: string): string {
     : publicInstaller;
   const shared = `TUNNEL_AGENT_API=${apiOrigin(env)}/api TUNNEL_AGENT_ENROLLMENT=${grant}`;
   return [`curl -fsSL ${installer} | sudo env ${shared} sh`, `wget -qO- ${installer} | sudo env ${shared} sh`].join("\n\n");
+}
+
+function domesticInstallCommand(env: Env, capsule: string): string {
+  const installer = env.DOMESTIC_BOOTSTRAP_URL?.trim().startsWith("https://")
+    ? env.DOMESTIC_BOOTSTRAP_URL.trim()
+    : `${filesOrigin(env)}/install.sh`;
+  return [`curl -fsSL ${installer} | sudo env TUNNEL_AGENT_CAPSULE=${capsule} sh`,
+    `wget -qO- ${installer} | sudo env TUNNEL_AGENT_CAPSULE=${capsule} sh`].join("\n\n");
 }
 
 async function commandResponse(env: Env, owner: OwnerRow, command: string | undefined, args: string[]): Promise<string> {

@@ -22,6 +22,8 @@ release artifact, or shell history:
 ```sh
 npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+npx wrangler secret put CAPSULE_SIGNING_PRIVATE_KEY
+npx wrangler secret put CLUSTER_CONTROL_KEY_ENCRYPTION_KEY
 ```
 
 Set `DOMESTIC_BOOTSTRAP_URL` as a Worker secret to the Iranian mirror copy of
@@ -117,15 +119,23 @@ Use non-production ports and leave the legacy hpn/jet services untouched:
 /install ir-6
 ```
 
-Run one returned command on each matching host. The installer:
+Foreign nodes use a one-time API enrollment grant. Domestic nodes instead
+receive one signed base62 capsule that includes the immutable bundle metadata,
+the initial domestic manifest, a cluster SSH control public key, and foreign
+relay addresses. A domestic command does not contact the API.
 
-1. calls `/api/v1/bootstrap` with its short-lived enrollment grant;
+The installer:
+
+1. verifies a domestic capsule with the pinned Ed25519 public key, or calls
+   `/api/v1/bootstrap` for a foreign enrollment grant;
 2. downloads and validates a complete architecture bundle from its prescribed
    mirror order, chunk by chunk when given a `.parts` manifest;
 3. validates the final SHA-256 before atomically publishing `/opt/tunnel-agent/current`;
 4. creates an HPNSSH identity; and
-5. calls `/api/v1/enroll` once, writes a v3 manifest and revision marker, and
-   starts `tunnel-agent agent` through `tunnel-agent.service`.
+5. calls `/api/v1/enroll` once for a foreign node, or persists the verified
+   domestic capsule without an API call; and
+6. starts `tunnel-agent agent` through `tunnel-agent.service`. Domestic
+   agents run with `--offline` until the relay synchronization protocol ships.
 
 At this point the node has the runtime but no active lane. The owner-side
 desired-state compiler will write an enabled, typed WSTunnel (or HPNSSH)

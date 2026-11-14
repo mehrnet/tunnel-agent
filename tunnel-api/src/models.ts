@@ -8,6 +8,9 @@ export interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
   BUNDLE_PUBLISH_TOKEN?: string;
+  CAPSULE_SIGNING_PRIVATE_KEY?: string;
+  CLUSTER_CONTROL_KEY_ENCRYPTION_KEY?: string;
+  DOMESTIC_CAPSULE_TTL_SECONDS?: string;
 }
 
 export type NodeClass = "domestic" | "foreign";
@@ -21,6 +24,14 @@ export interface OwnerRow {
 export interface ClusterRow {
   id: string;
   name: string;
+}
+
+export interface ClusterControlKeyRow {
+  ssh_public_key: string;
+}
+
+export interface RelayRow {
+  address: string;
 }
 
 export interface NodeRow {

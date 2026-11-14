@@ -1,4 +1,5 @@
 mod agent;
+mod capsule;
 mod manifest;
 mod runtime;
 
@@ -69,6 +70,20 @@ enum CommandKind {
         node_token_file: PathBuf,
         #[arg(long, default_value_t = 60)]
         poll_interval_secs: u64,
+        /// Use the signed domestic bootstrap state only; never call the API.
+        #[arg(long)]
+        offline: bool,
+    },
+    /// Verify and persist a signed domestic bootstrap capsule.
+    BootstrapCapsule {
+        #[arg(long)]
+        capsule: String,
+        #[arg(long, default_value = "/etc/tunnel-agent")]
+        etc_dir: PathBuf,
+        #[arg(long, default_value = "/opt/tunnel-agent/state")]
+        state_dir: PathBuf,
+        #[arg(long, default_value = "/etc/tunnel-agent/manifest.json")]
+        config: PathBuf,
     },
 }
 
@@ -152,6 +167,7 @@ async fn main() -> ExitCode {
             node_id_file,
             node_token_file,
             poll_interval_secs,
+            offline,
         } => match agent::reconcile(AgentSettings {
             config_path: config,
             state_dir,
@@ -159,11 +175,27 @@ async fn main() -> ExitCode {
             node_id_file,
             node_token_file,
             poll_interval_secs,
+            offline,
         })
         .await
         {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => failure("agent cannot start", error),
+        },
+        CommandKind::BootstrapCapsule {
+            capsule,
+            etc_dir,
+            state_dir,
+            config,
+        } => match capsule::install_domestic(&capsule, &etc_dir, &state_dir, &config) {
+            Ok(material) => {
+                println!(
+                    "installed domestic capsule cluster={} node={} revision={}",
+                    material.cluster_id, material.node_id, material.revision
+                );
+                ExitCode::SUCCESS
+            }
+            Err(error) => failure("invalid bootstrap capsule", error),
         },
     }
 }
