@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "tunnel-files",
+  "account_id": "94eee55a09ab74b34c825f704aa6b4cf",
+  "compatibility_date": "2026-11-13",
+  "routes": [
+    {
+      "pattern": "tunnel-files.mehrnet.com",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./static"
+  }
+}

@@ -6,16 +6,19 @@ only the lanes selected in its local manifest. It does not SSH into hosts,
 discover topology, seed files peer-to-peer, or download a binary when a lane is
 toggled.
 
-The product has one public origin:
+The product has two public origins and one installed binary:
 
 ```text
-https://tunnel-agent.mehrnet.com/
+https://tunnel-api.mehrnet.com/api/*
+https://tunnel-files.mehrnet.com/*
+tunnel-agent (the binary installed on each node)
 ```
 
-- `/api/*` is a Cloudflare Worker: Telegram webhook, ownership, clusters,
-  enrollment, immutable bundle metadata, and node documents in D1.
-- Every other path is a static asset: website, installer, versioned bundle
-  manifests, and immutable archive chunks.
+- `tunnel-api.mehrnet.com` is a Cloudflare Worker: Telegram webhook,
+  ownership, clusters, enrollment, immutable bundle metadata, and node
+  documents in D1. It intentionally serves no website or release assets.
+- `tunnel-files.mehrnet.com` is an assets-only Cloudflare deployment: website,
+  installer, versioned bundle manifests, and immutable archive chunks.
 
 ## Static bundle
 
@@ -116,13 +119,25 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test --locked
 
-cd cloudflare
+cd tunnel-api
 npm install
 npm run check
 ```
 
 Tags matching `v*` build musl `amd64` and `arm64` bundles in GitHub Actions.
-The static-site artifact is named `tunnel-agent-static-assets-vX.Y.Z`.
+Use `tools/publish.sh` to split a release into immutable chunks, publish them
+to `tunnel-files.mehrnet.com`, and activate the matching bundle metadata
+through `tunnel-api.mehrnet.com`.
 
 The complete Cloudflare, bundle mirror, Telegram, and W4R canary sequence is in
 [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md).
+
+## Repository layout
+
+| Path | Responsibility |
+| --- | --- |
+| `tunnel-agent/` | Rust node runtime and manifest compiler. |
+| `tunnel-api/` | Cloudflare Worker, D1 migrations, and Telegram bot. |
+| `tunnel-files/` | Assets-only Cloudflare configuration and static installer/bundles. |
+| `tools/` | Release assembly and static bundle publication tooling. |
+| `docs/` | Protocol contracts, API operations, and bootstrap runbooks. |

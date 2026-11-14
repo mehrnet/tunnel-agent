@@ -2,7 +2,7 @@
 # Immutable tunnel-agent bundle bootstrap. Tunnel lanes never download binaries.
 set -eu
 
-: "${TUNNEL_AGENT_API:=https://tunnel-agent.mehrnet.com/api}"
+: "${TUNNEL_AGENT_API:=https://tunnel-api.mehrnet.com/api}"
 : "${TUNNEL_AGENT_ENROLLMENT:?set TUNNEL_AGENT_ENROLLMENT from TunnelOwnersBot}"
 
 ROOT="${TUNNEL_AGENT_ROOT:-/opt/tunnel-agent}"

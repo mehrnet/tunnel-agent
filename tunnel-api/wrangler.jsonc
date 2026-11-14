@@ -1,20 +1,15 @@
 {
   "$schema": "https://unpkg.com/wrangler/config-schema.json",
-  "name": "tunnel-agent",
+  "name": "tunnel-api",
   "account_id": "94eee55a09ab74b34c825f704aa6b4cf",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-11-13",
   "routes": [
     {
-      "pattern": "tunnel-agent.mehrnet.com",
+      "pattern": "tunnel-api.mehrnet.com",
       "custom_domain": true
     }
   ],
-  "assets": {
-    "directory": "./public",
-    "binding": "ASSETS",
-    "run_worker_first": ["/api/*"]
-  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -24,7 +19,8 @@
     }
   ],
   "vars": {
-    "PUBLIC_ORIGIN": "https://tunnel-agent.mehrnet.com",
+    "API_ORIGIN": "https://tunnel-api.mehrnet.com",
+    "FILES_ORIGIN": "https://tunnel-files.mehrnet.com",
     "TELEGRAM_BOT_USERNAME": "TunnelOwnersBot",
     "ENROLLMENT_TTL_SECONDS": "900"
   }

@@ -1,7 +1,7 @@
 export interface Env {
-  ASSETS: Fetcher;
   DB: D1Database;
-  PUBLIC_ORIGIN: string;
+  API_ORIGIN: string;
+  FILES_ORIGIN: string;
   DOMESTIC_BOOTSTRAP_URL?: string;
   TELEGRAM_BOT_USERNAME: string;
   ENROLLMENT_TTL_SECONDS: string;
@@ -100,8 +100,12 @@ function error(text: string, status = 400): Response {
   return json({ error: text }, status);
 }
 
-function publicOrigin(env: Env): string {
-  return env.PUBLIC_ORIGIN.replace(/\/$/, "");
+function apiOrigin(env: Env): string {
+  return env.API_ORIGIN.replace(/\/$/, "");
+}
+
+function filesOrigin(env: Env): string {
+  return env.FILES_ORIGIN.replace(/\/$/, "");
 }
 
 function validNodeClass(value: string | undefined): value is NodeClass {
@@ -334,7 +338,7 @@ async function handleBootstrap(request: Request, env: Env): Promise<Response> {
   const bundle = await activeBundle(env, requestedArchitecture);
   if (!bundle) return error(`no active ${requestedArchitecture} tunnel-agent bundle`, 503);
   try {
-    return message(bootstrapEnv(bundle, grant.node_class, publicOrigin(env)));
+    return message(bootstrapEnv(bundle, grant.node_class, filesOrigin(env)));
   } catch (reason) {
     return error(reason instanceof Error ? reason.message : "invalid bundle registry", 503);
   }
@@ -488,12 +492,12 @@ async function createEnrollmentGrant(env: Env, node: NodeRow): Promise<string> {
 }
 
 function installCommand(env: Env, node: NodeRow, grant: string): string {
-  const publicInstaller = `${publicOrigin(env)}/install.sh`;
+  const publicInstaller = `${filesOrigin(env)}/install.sh`;
   const domesticInstaller = env.DOMESTIC_BOOTSTRAP_URL?.trim();
   const installer = node.node_class === "domestic" && domesticInstaller?.startsWith("https://")
     ? domesticInstaller
     : publicInstaller;
-  const shared = `TUNNEL_AGENT_API=${publicOrigin(env)}/api TUNNEL_AGENT_ENROLLMENT=${grant}`;
+  const shared = `TUNNEL_AGENT_API=${apiOrigin(env)}/api TUNNEL_AGENT_ENROLLMENT=${grant}`;
   return [
     `curl -fsSL ${installer} | sudo env ${shared} sh`,
     `wget -qO- ${installer} | sudo env ${shared} sh`,
@@ -662,6 +666,6 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) return handleApi(request, env, ctx);
-    return env.ASSETS.fetch(request);
+    return error("not found", 404);
   },
 };

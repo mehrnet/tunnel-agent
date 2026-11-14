@@ -1,12 +1,17 @@
-# tunnel-agent Cloudflare service
+# tunnel-api
 
-`wrangler.jsonc` deploys the complete `tunnel-agent.mehrnet.com` origin:
+`tunnel-api/wrangler.jsonc` deploys only the API Worker at
+`https://tunnel-api.mehrnet.com`:
 
-- `/api/*` runs [src/worker.ts](src/worker.ts) with the D1 `DB` binding.
-- every other request is served from `public/` through the `ASSETS` binding.
+- `/api/*` runs [worker.ts](../tunnel-api/src/worker.ts) with the D1 `DB` binding.
+- non-API requests receive `404 Not Found`.
 
 The Worker source deliberately has no transport binary and no bot token in its
 repository configuration.
+
+Static website, installer, manifests, and bundle chunks are separately served
+from `https://tunnel-files.mehrnet.com` by the assets-only
+`tunnel-files/wrangler.jsonc` deployment.
 
 ## Initial deployment
 
@@ -20,10 +25,11 @@ wrangler secret put TELEGRAM_WEBHOOK_SECRET
 ```
 
 4. Deploy with `npm run deploy`.
-5. Configure Telegram to post to
-   `https://tunnel-agent.mehrnet.com/api/telegram/webhook` with the same
+5. Deploy the static files separately with `npm run files:deploy`.
+6. Configure Telegram to post to
+   `https://tunnel-api.mehrnet.com/api/telegram/webhook` with the same
    webhook secret.
-6. Set `BUNDLE_PUBLISH_TOKEN` as a Worker secret. The release publisher uses
+7. Set `BUNDLE_PUBLISH_TOKEN` as a Worker secret. The release publisher uses
    the scoped activation endpoint to atomically register one active amd64 and
    arm64 bundle. The installer rejects enrollment until exact release archive
    hashes and static chunk manifests are registered.
@@ -38,7 +44,7 @@ BUNDLE_SOURCE_DIR=/path/to/release \
 BUNDLE_PUBLISH_TOKEN=... \
 DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
 DOMESTIC_BUNDLE_FORMAT=archive \
-./scripts/publish-bundle.sh
+./tools/publish.sh
 ```
 
 `DOMESTIC_BOOTSTRAP_URL` is an optional Worker secret used only to change the
@@ -50,6 +56,15 @@ receive the official installer URL.
 
 `DOMESTIC_BUNDLE_FORMAT` defaults to `manifest`; set it to `archive` when the
 Iranian mirror serves the full release archive instead.
+
+## Domain migration
+
+`tunnel-api` is a new Worker name. Cloudflare does not copy encrypted secrets
+between Worker names, so set `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_WEBHOOK_SECRET`, and `BUNDLE_PUBLISH_TOKEN` on `tunnel-api` before
+deploying it. Verify `/api/health`, the Telegram webhook, and an installer
+response from `tunnel-files.mehrnet.com` before removing the former
+`tunnel-agent.mehrnet.com` custom domain.
 
 ## Required secret handling
 

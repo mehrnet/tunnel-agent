@@ -2,5 +2,5 @@
 target
 vendor/**/.git
 vendor/**/target
-cloudflare/node_modules
-cloudflare/.wrangler
+tunnel-api/node_modules
+tunnel-api/.wrangler

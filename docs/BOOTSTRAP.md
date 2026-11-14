@@ -1,13 +1,13 @@
 # tunnel-agent Bootstrap Runbook
 
-This runbook publishes the static `tunnel-agent` website, Worker API, complete
+This runbook publishes static tunnel files, Worker API, complete
 transport bundles, Telegram owner bot, and the first W4R canary. It does not
 replace a production HPNSSH/Jet lane until the canary has met its health and
 throughput thresholds.
 
 ## 1. Create the Cloudflare state
 
-From `cloudflare/`, create a D1 database and place the returned database ID
+From `tunnel-api/`, create a D1 database and place the returned database ID
 in `wrangler.jsonc`:
 
 ```sh
@@ -25,16 +25,22 @@ npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
 ```
 
 Set `DOMESTIC_BOOTSTRAP_URL` as a Worker secret to the Iranian mirror copy of
-`install.sh`, then deploy the Worker and attach the custom domain
-`tunnel-agent.mehrnet.com`:
+`install.sh`, then deploy the API Worker and attach
+`tunnel-api.mehrnet.com`:
 
 ```sh
 npx wrangler secret put DOMESTIC_BOOTSTRAP_URL
 npm run deploy
+npm run files:deploy
 ```
 
-The Worker only handles `/api/*`; the custom domain's remaining paths are
-served by the `ASSETS` binding.
+The API Worker only handles `/api/*`. Deploy `tunnel-files/wrangler.jsonc`
+separately to attach static files to `tunnel-files.mehrnet.com`.
+
+The renamed `tunnel-api` Worker needs its own encrypted secrets; Cloudflare
+does not transfer secret values from the former Worker name. Retire the former
+`tunnel-agent.mehrnet.com` custom domain only after the new API, files domain,
+and Telegram webhook have been verified.
 
 ## 2. Publish a bundle and its mirrors
 
@@ -68,7 +74,7 @@ BUNDLE_SOURCE_DIR=/path/to/downloaded-release \
 BUNDLE_PUBLISH_TOKEN=... \
 DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
 DOMESTIC_BUNDLE_FORMAT=archive \
-./cloudflare/scripts/publish-bundle.sh
+./tools/publish.sh
 ```
 
 `BUNDLE_PUBLISH_TOKEN` is a Worker secret. The publisher deploys static assets
@@ -89,7 +95,7 @@ After the Worker deploys, register its webhook with the same secret supplied to
 
 ```sh
 curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
-  --data-urlencode "url=https://tunnel-agent.mehrnet.com/api/telegram/webhook" \
+  --data-urlencode "url=https://tunnel-api.mehrnet.com/api/telegram/webhook" \
   --data-urlencode "secret_token=${TELEGRAM_WEBHOOK_SECRET}" \
   --data-urlencode 'allowed_updates=["message"]'
 ```

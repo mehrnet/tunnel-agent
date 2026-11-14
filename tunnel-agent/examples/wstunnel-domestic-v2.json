@@ -15,7 +15,7 @@
           "priority": 10
         },
         {
-          "url": "https://tunnel-agent.mehrnet.com/artifacts/wstunnel/11.3.0/linux-amd64",
+          "url": "https://tunnel-files.mehrnet.com/artifacts/wstunnel/11.3.0/linux-amd64",
           "scope": "any",
           "priority": 100
         }

@@ -1,12 +1,12 @@
 {
-  "name": "tunnel-agent-cloudflare",
+  "name": "tunnel-api",
   "private": true,
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit",
     "dev": "wrangler dev",
-    "prepare:assets": "cp install.sh public/install.sh",
-    "deploy": "npm run prepare:assets && wrangler deploy",
+    "deploy": "wrangler deploy",
+    "files:deploy": "wrangler deploy --config ../tunnel-files/wrangler.jsonc",
     "db:migrate:local": "wrangler d1 migrations apply tunnel-agent --local",
     "db:migrate:remote": "wrangler d1 migrations apply tunnel-agent --remote"
   },

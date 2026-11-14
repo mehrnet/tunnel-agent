@@ -14,10 +14,14 @@ case "$BUNDLE_VERSION" in
 esac
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-distribution_dir=$(CDPATH='' cd -- "$script_dir/.." && pwd)
-site_bundle_dir="$distribution_dir/public/bundles/$BUNDLE_VERSION"
+repository_dir=$(CDPATH='' cd -- "$script_dir/.." && pwd)
+api_dir="$repository_dir/tunnel-api"
+files_dir="$repository_dir/tunnel-files/static"
+files_config="$repository_dir/tunnel-files/wrangler.jsonc"
+site_bundle_dir="$files_dir/bundles/$BUNDLE_VERSION"
 domestic_base=${DOMESTIC_BUNDLE_BASE_URL:-}
 domestic_format=${DOMESTIC_BUNDLE_FORMAT:-manifest}
+api_origin=${TUNNEL_API_ORIGIN:-https://tunnel-api.mehrnet.com}
 chunk_bytes=${BUNDLE_CHUNK_BYTES:-20971520}
 
 case "$chunk_bytes" in
@@ -28,7 +32,7 @@ case "$chunk_bytes" in
 esac
 
 # Cloudflare Workers static assets are limited to 25 MiB. Leave margin for
-# platform changes and ensure a bundle chunk can always be an ASSETS object.
+# platform changes and ensure a bundle chunk can always be a static object.
 if [ "$chunk_bytes" -le 0 ] || [ "$chunk_bytes" -gt 25165824 ]; then
   echo "BUNDLE_CHUNK_BYTES must be between 1 and 25165824 bytes" >&2
   exit 2
@@ -95,7 +99,7 @@ stage_bundle() {
   parts_tmp=$(mktemp -d)
 
   # Do not publish the archive itself: an ARM64 release is larger than the
-  # Cloudflare ASSETS object limit. The installer verifies every chunk and
+  # Cloudflare static-object limit. The installer verifies every chunk and
   # the reconstructed archive against the SHA registered in D1.
   split -b "$chunk_bytes" -d -a 4 "$source_archive" "$parts_tmp/part-"
   {
@@ -135,7 +139,6 @@ stage_bundle() {
 payload_file=$(mktemp)
 trap 'rm -f "$payload_file"' EXIT HUP INT TERM
 mkdir -p "$site_bundle_dir"
-install -D -m 0755 "$distribution_dir/install.sh" "$distribution_dir/public/install.sh"
 
 printf '{"version":"%s","bundles":[\n' "$BUNDLE_VERSION" > "$payload_file"
 bundle_count=0
@@ -145,13 +148,13 @@ printf '\n]}\n' >> "$payload_file"
 
 # Static files must exist before their D1 records can be returned to a node.
 (
-  cd "$distribution_dir"
-  npm run deploy
+  cd "$api_dir"
+  npm exec -- wrangler deploy --config "$files_config"
   curl --fail-with-body --silent --show-error \
     --header "authorization: Bearer $BUNDLE_PUBLISH_TOKEN" \
     --header "content-type: application/json" \
     --data-binary "@$payload_file" \
-    "https://tunnel-agent.mehrnet.com/api/v1/admin/bundles/activate"
+    "${api_origin%/}/api/v1/admin/bundles/activate"
 )
 
 echo "published and activated $BUNDLE_VERSION"

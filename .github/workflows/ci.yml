@@ -17,6 +17,15 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test --locked
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: npm ci
+        working-directory: tunnel-api
+      - run: npm run check
+        working-directory: tunnel-api
+      - run: npm exec -- wrangler deploy --dry-run
+        working-directory: tunnel-api
+      - run: npm exec -- wrangler deploy --dry-run --config ../tunnel-files/wrangler.jsonc
+        working-directory: tunnel-api
+      - run: shellcheck tunnel-files/static/install.sh tools/*.sh
 
