@@ -19,6 +19,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --locked
+      - run: node tools/check-policy.mjs
       - run: npm ci
         working-directory: tunnel-api
       - run: npm run check

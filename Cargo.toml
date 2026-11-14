@@ -8,3 +8,6 @@ lto = true
 opt-level = "z"
 panic = "abort"
 strip = "symbols"
+
+[workspace.lints.clippy]
+too_many_lines = "deny"
