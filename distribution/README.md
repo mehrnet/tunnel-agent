@@ -10,7 +10,7 @@ repository configuration.
 
 ## Initial deployment
 
-1. Create a D1 database and replace `database_id` in `wrangler.jsonc`.
+1. Create a D1 database and place its database ID in `wrangler.jsonc`.
 2. Run `npm install` and `npm run db:migrate:remote`.
 3. Store the Telegram credentials as Worker secrets:
 
@@ -27,9 +27,11 @@ wrangler secret put TELEGRAM_WEBHOOK_SECRET
    installer rejects enrollment until an exact release archive and SHA-256 are
    registered.
 
-`DOMESTIC_BOOTSTRAP_URL` is a non-secret Worker variable. Point it to an
-Iranian mirror of this exact `install.sh`; that mirror must expose the same
-versioned archive as `bundle_releases.domestic_url`.
+`DOMESTIC_BOOTSTRAP_URL` is an optional Worker secret used only to change the
+installer URL sent to domestic nodes. Point it to an Iranian mirror of this
+exact `install.sh`; that mirror must expose the same versioned archive as
+`bundle_releases.domestic_url`. Until it is set, domestic nodes safely receive
+the official installer URL.
 
 ## Required secret handling
 

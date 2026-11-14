@@ -2,7 +2,7 @@ export interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   PUBLIC_ORIGIN: string;
-  DOMESTIC_BOOTSTRAP_URL: string;
+  DOMESTIC_BOOTSTRAP_URL?: string;
   TELEGRAM_BOT_USERNAME: string;
   ENROLLMENT_TTL_SECONDS: string;
   TELEGRAM_BOT_TOKEN?: string;
@@ -365,9 +365,11 @@ async function createEnrollmentGrant(env: Env, node: NodeRow): Promise<string> {
 }
 
 function installCommand(env: Env, node: NodeRow, grant: string): string {
-  const installer = node.node_class === "domestic"
-    ? env.DOMESTIC_BOOTSTRAP_URL
-    : `${publicOrigin(env)}/install.sh`;
+  const publicInstaller = `${publicOrigin(env)}/install.sh`;
+  const domesticInstaller = env.DOMESTIC_BOOTSTRAP_URL?.trim();
+  const installer = node.node_class === "domestic" && domesticInstaller?.startsWith("https://")
+    ? domesticInstaller
+    : publicInstaller;
   const shared = `TUNNEL_AGENT_API=${publicOrigin(env)}/api TUNNEL_AGENT_ENROLLMENT=${grant}`;
   return [
     `curl -fsSL ${installer} | sudo env ${shared} sh`,

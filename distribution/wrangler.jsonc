@@ -1,8 +1,15 @@
 {
   "$schema": "https://unpkg.com/wrangler/config-schema.json",
   "name": "tunnel-agent",
+  "account_id": "94eee55a09ab74b34c825f704aa6b4cf",
   "main": "./src/index.ts",
   "compatibility_date": "2026-11-13",
+  "routes": [
+    {
+      "pattern": "tunnel-agent.mehrnet.com",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -12,16 +19,16 @@
     {
       "binding": "DB",
       "database_name": "tunnel-agent",
-      "database_id": "REPLACE_WITH_TUNNEL_AGENT_D1_DATABASE_ID",
+      "database_id": "d6caf939-b959-4471-918f-2e05ca282a37",
       "migrations_dir": "./migrations"
     }
   ],
   "vars": {
     "PUBLIC_ORIGIN": "https://tunnel-agent.mehrnet.com",
-    "DOMESTIC_BOOTSTRAP_URL": "https://iran-mirror.example/tunnel-agent/install.sh",
     "TELEGRAM_BOT_USERNAME": "TunnelOwnersBot",
     "ENROLLMENT_TTL_SECONDS": "900"
   }
-  // Set TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET with `wrangler secret put`.
-  // They deliberately do not belong in vars, this file, or source control.
+  // Set TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, and optionally
+  // DOMESTIC_BOOTSTRAP_URL with `wrangler secret put`; no credential belongs
+  // in vars, this file, or source control.
 }

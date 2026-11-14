@@ -24,11 +24,12 @@ npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
 ```
 
-Set `DOMESTIC_BOOTSTRAP_URL` in `wrangler.jsonc` to the Iranian mirror copy of
+Set `DOMESTIC_BOOTSTRAP_URL` as a Worker secret to the Iranian mirror copy of
 `install.sh`, then deploy the Worker and attach the custom domain
 `tunnel-agent.mehrnet.com`:
 
 ```sh
+npx wrangler secret put DOMESTIC_BOOTSTRAP_URL
 npm run deploy
 ```
 
