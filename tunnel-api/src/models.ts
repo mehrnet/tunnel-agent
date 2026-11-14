@@ -64,6 +64,11 @@ export interface DocumentRow {
   updated_at: number;
 }
 
+export interface RelayDocumentRow extends DocumentRow {
+  cluster_id: string;
+  node_id: string;
+}
+
 export interface BundleActivationEntry {
   architecture: Architecture;
   sha256: string;

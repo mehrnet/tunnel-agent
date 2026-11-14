@@ -9,6 +9,24 @@
 The Worker source deliberately has no transport binary and no bot token in its
 repository configuration.
 
+## Relay documents
+
+An enrolled foreign node can fetch the signed desired-state envelopes for the
+domestic members of its own clusters:
+
+```text
+GET /api/v1/nodes/<foreign-node-uuid>/relay-documents
+Authorization: Bearer <foreign-node-uuid>.<node-token>
+```
+
+The endpoint returns no foreign documents and no documents from unrelated
+clusters. Each envelope is signed by the Worker key pinned into
+`tunnel-agent`; domestic nodes verify the cluster ID, node ID, revision, and
+manifest before a future management ingress is allowed to apply it. The
+endpoint only issues state: it does not itself establish a tunnel or connect to
+a domestic node. Current relay envelopes are not encrypted, so relayed
+manifests must not contain inline secret values.
+
 Static website, installer, manifests, and bundle chunks are separately served
 from `https://tunnel-files.mehrnet.com` by the assets-only
 `tunnel-files/wrangler.jsonc` deployment.

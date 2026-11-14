@@ -1,4 +1,4 @@
-import type { Architecture, AuditReferences, BundleRow, ClusterRow, DocumentRow, Env, GrantRow, NodeRow, OwnerRow, RelayRow } from "./models";
+import type { Architecture, AuditReferences, BundleRow, ClusterRow, DocumentRow, Env, GrantRow, NodeRow, OwnerRow, RelayDocumentRow, RelayRow } from "./models";
 import { now, parseGrant, randomToken, sha256 } from "./validation";
 
 export async function audit(
@@ -54,6 +54,12 @@ export async function nodeByName(env: Env, ownerId: string, name: string): Promi
     .first<NodeRow>();
 }
 
+export async function nodeById(env: Env, nodeId: string): Promise<NodeRow | null> {
+  return env.DB.prepare(
+    "SELECT id, name, node_class, address, status FROM nodes WHERE id = ?",
+  ).bind(nodeId).first<NodeRow>();
+}
+
 export async function requireGrant(env: Env, rawGrant: unknown): Promise<GrantRow | null> {
   const grant = parseGrant(rawGrant);
   if (!grant) return null;
@@ -94,6 +100,24 @@ export async function foreignRelayAddresses(env: Env, clusterId: string): Promis
       WHERE cn.cluster_id = ? AND n.node_class = 'foreign' AND n.status != 'revoked' AND n.address IS NOT NULL
       ORDER BY n.name`,
   ).bind(clusterId).all<RelayRow>();
+  return rows.results;
+}
+
+export async function relayDocumentsForForeignNode(env: Env, relayNodeId: string): Promise<RelayDocumentRow[]> {
+  const rows = await env.DB.prepare(
+    `SELECT c.id AS cluster_id, d.node_id, d.revision, d.manifest_json, d.updated_at
+       FROM cluster_nodes relay_membership
+       JOIN clusters c ON c.id = relay_membership.cluster_id
+       JOIN cluster_nodes domestic_membership ON domestic_membership.cluster_id = c.id
+       JOIN nodes domestic_node ON domestic_node.id = domestic_membership.node_id
+       JOIN node_documents d ON d.node_id = domestic_node.id
+      WHERE relay_membership.node_id = ?
+        AND relay_membership.role = 'foreign'
+        AND domestic_membership.role = 'domestic'
+        AND domestic_node.node_class = 'domestic'
+        AND domestic_node.status != 'revoked'
+      ORDER BY c.id, d.node_id`,
+  ).bind(relayNodeId).all<RelayDocumentRow>();
   return rows.results;
 }
 

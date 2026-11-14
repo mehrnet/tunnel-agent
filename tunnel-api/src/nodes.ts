@@ -66,13 +66,17 @@ export async function handleEnroll(request: Request, env: Env): Promise<Response
   return json(payload);
 }
 
-async function authorizeNode(request: Request, env: Env, nodeId: string): Promise<boolean> {
+export async function authorizeNode(request: Request, env: Env, nodeId: string): Promise<boolean> {
   const header = request.headers.get("authorization");
   if (!header?.startsWith("Bearer ")) return false;
   const token = header.slice("Bearer ".length);
   const separator = token.indexOf(".");
   if (separator < 1 || token.slice(0, separator) !== nodeId) return false;
-  const credential = await env.DB.prepare("SELECT secret_hash FROM node_credentials WHERE node_id = ?")
+  const credential = await env.DB.prepare(
+    `SELECT c.secret_hash FROM node_credentials c
+       JOIN nodes n ON n.id = c.node_id
+      WHERE c.node_id = ? AND n.status = 'enrolled'`,
+  )
     .bind(nodeId)
     .first<{ secret_hash: string }>();
   return Boolean(credential && credential.secret_hash === await sha256(token.slice(separator + 1)));

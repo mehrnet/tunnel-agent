@@ -1,6 +1,7 @@
 import { clusterControlPublicKey } from "./cluster-keys";
-import { base62Capsule, base64Standard, base64Url } from "./encoding";
+import { base62Capsule, base64Url } from "./encoding";
 import type { BundleRow, Env, NodeRow } from "./models";
+import { signApiPayload } from "./signing";
 import { activeBundle, foreignRelayAddresses, nodeClusters, nodeDocument } from "./store";
 import { filesOrigin, now } from "./validation";
 
@@ -46,7 +47,7 @@ export async function issueDomesticCapsule(env: Env, node: NodeRow): Promise<str
     au: bundleUrls(env, arm64),
     l: relays.map(relayEndpoint),
   });
-  return base62Capsule(JSON.stringify({ p: base64Url(new TextEncoder().encode(payload)), s: await sign(env, payload) }));
+  return base62Capsule(JSON.stringify({ p: base64Url(new TextEncoder().encode(payload)), s: await signApiPayload(env, payload) }));
 }
 
 function requireDomesticBundles(env: Env, amd64: BundleRow, arm64: BundleRow): void {
@@ -72,12 +73,4 @@ function relayEndpoint(relay: { address: string }): Relay {
     throw new Error(`foreign relay address is invalid: ${relay.address}`);
   }
   return { h: relay.address, p: 2222 };
-}
-
-async function sign(env: Env, payload: string): Promise<string> {
-  const privateKey = base64Standard(env.CAPSULE_SIGNING_PRIVATE_KEY ?? "");
-  if (!privateKey) throw new Error("capsule signing is not configured");
-  const key = await crypto.subtle.importKey("pkcs8", privateKey, { name: "Ed25519" }, false, ["sign"]);
-  const signature = await crypto.subtle.sign("Ed25519", key, new TextEncoder().encode(payload));
-  return base64Url(signature);
 }

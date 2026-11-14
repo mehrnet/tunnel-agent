@@ -18,7 +18,7 @@ const HEADER_WIDTH: usize = 5;
 const BLOCK_WIDTH: usize = 7;
 const BLOCK_BYTES: usize = 5;
 const MAX_CAPSULE_BYTES: usize = 32_768;
-const CAPSULE_PUBLIC_KEY: &str = "59O+lw4EIergZadHvVPK4RW688eIfIupFEBf0cdcTkc=";
+pub(crate) const API_SIGNING_PUBLIC_KEY: &str = "59O+lw4EIergZadHvVPK4RW688eIfIupFEBf0cdcTkc=";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -178,25 +178,28 @@ fn base62_number(value: &str) -> Result<u64, String> {
     })
 }
 
-fn decode_url(value: &str, label: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn decode_url(value: &str, label: &str) -> Result<Vec<u8>, String> {
     URL_SAFE_NO_PAD
         .decode(value)
         .map_err(|_| format!("{label} is not valid base64url"))
 }
 
 fn verify_signature(payload: &[u8], signature: &[u8]) -> Result<(), String> {
-    let public = STANDARD
-        .decode(CAPSULE_PUBLIC_KEY)
-        .map_err(|_| "compiled capsule public key is invalid".to_owned())?;
-    let public: [u8; 32] = public
-        .try_into()
-        .map_err(|_| "compiled capsule key has invalid length")?;
-    let key = VerifyingKey::from_bytes(&public)
-        .map_err(|_| "compiled capsule key is invalid".to_owned())?;
+    let key = api_verifying_key()?;
     let signature =
         Signature::from_slice(signature).map_err(|_| "capsule signature is invalid".to_owned())?;
     key.verify(payload, &signature)
         .map_err(|_| "capsule signature verification failed".to_owned())
+}
+
+pub(crate) fn api_verifying_key() -> Result<VerifyingKey, String> {
+    let public = STANDARD
+        .decode(API_SIGNING_PUBLIC_KEY)
+        .map_err(|_| "compiled API public key is invalid".to_owned())?;
+    let public: [u8; 32] = public
+        .try_into()
+        .map_err(|_| "compiled API key has invalid length")?;
+    VerifyingKey::from_bytes(&public).map_err(|_| "compiled API key is invalid".to_owned())
 }
 
 fn validate_bundle(version: &str, sha256: &str, urls: &str) -> Result<(), String> {

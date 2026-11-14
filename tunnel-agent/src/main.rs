@@ -2,9 +2,11 @@ mod agent;
 mod agent_spec;
 mod capsule;
 mod manifest;
+mod relay;
 mod runtime;
 
 use std::{
+    io::Read,
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -86,6 +88,16 @@ enum CommandKind {
         state_dir: PathBuf,
         #[arg(long, default_value = "/etc/tunnel-agent/manifest.json")]
         config: PathBuf,
+    },
+    /// Verify a signed relay document for this domestic node without applying it.
+    VerifyRelayDocument {
+        /// Read the envelope from this file instead of standard input.
+        #[arg(long)]
+        input: Option<PathBuf>,
+        #[arg(long, default_value = "/etc/tunnel-agent/relay-state.json")]
+        relay_state: PathBuf,
+        #[arg(long, default_value = "/etc/tunnel-agent/node-id")]
+        node_id_file: PathBuf,
     },
 }
 
@@ -210,6 +222,38 @@ async fn main() -> ExitCode {
             }
             Err(error) => failure("invalid bootstrap capsule", error),
         },
+        CommandKind::VerifyRelayDocument {
+            input,
+            relay_state,
+            node_id_file,
+        } => match read_relay_document(input.as_deref())
+            .and_then(|raw| relay::verify_for_local_node(&raw, &relay_state, &node_id_file))
+        {
+            Ok(document) => {
+                println!(
+                    "verified relay document cluster={} node={} revision={}",
+                    document.cluster_id, document.node_id, document.revision
+                );
+                ExitCode::SUCCESS
+            }
+            Err(error) => failure("invalid relay document", error),
+        },
+    }
+}
+
+fn read_relay_document(input: Option<&Path>) -> Result<String, String> {
+    match input {
+        Some(path) => std::fs::read_to_string(path)
+            .map_err(|error| format!("cannot read relay document {}: {error}", path.display())),
+        None => {
+            let mut value = String::new();
+            std::io::stdin()
+                .read_to_string(&mut value)
+                .map_err(|error| {
+                    format!("cannot read relay document from standard input: {error}")
+                })?;
+            Ok(value)
+        }
     }
 }
 
