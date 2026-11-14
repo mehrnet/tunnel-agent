@@ -8,6 +8,11 @@ export function nodeManifest(nodeClass: NodeClass): string {
     version: 3,
     node_scope: nodeClass,
     bundle: { root: BUNDLE_ROOT },
+    agent: {
+      poll_interval_secs: 60,
+      max_active_lanes: 1,
+      lanes: [],
+    },
     tunnels: [],
   });
 }

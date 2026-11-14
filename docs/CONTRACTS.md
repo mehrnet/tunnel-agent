@@ -69,8 +69,10 @@ derives them from the first 96 bits of SHA-256 over this canonical identity:
 `v1\0cluster-uuid\0local-node-uuid\0peer-node-uuid\0transport\0direction`.
 They are not labels such as `hpn-primary` or `ws-secondary`. The manifest
 rejects public or privileged management listeners, duplicate enabled priorities,
-more active lanes than the configured limit, and listener collisions with typed
-tunnel contracts.
+and listener collisions with typed tunnel contracts. Every enabled lane is
+eligible; after priority ordering, the first `max_active_lanes` are selected
+and the rest remain validated standbys. This makes failover safe without
+having to issue a new manifest during an outage.
 
 This first contract increment only validates and exposes the intended lane
 plan. It deliberately does **not** start a management transport or claim a

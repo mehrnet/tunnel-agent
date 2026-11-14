@@ -100,6 +100,7 @@ fn print_plan(plan: &CompiledPlan) -> Result<(), String> {
             .collect::<Vec<_>>(),
         "agent_lanes": plan.agent_lanes.iter().map(|lane| serde_json::json!({
             "id": lane.id,
+            "selected": lane.selected,
             "transport": lane.transport.as_str(),
             "direction": lane.direction.as_str(),
             "priority": lane.priority,

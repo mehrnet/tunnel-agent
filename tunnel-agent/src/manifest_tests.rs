@@ -233,7 +233,11 @@ fn compiles_an_agent_lane_plan_without_starting_a_customer_contract() {
     let plan = compile(&config, Path::new("/unused-state")).expect("valid agent plan");
     assert!(plan.processes.is_empty());
     assert_eq!(plan.agent_lanes[0].id, "8NdSLH0jy7Af3Gu9h");
-    assert_eq!(plan.listeners[0].owner, "agent lane 8NdSLH0jy7Af3Gu9h");
+    assert!(plan.agent_lanes[0].selected);
+    assert_eq!(
+        plan.listeners[0].owner,
+        "agent lane 8NdSLH0jy7Af3Gu9h (selected)"
+    );
 }
 
 #[test]

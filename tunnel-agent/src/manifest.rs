@@ -952,7 +952,7 @@ pub fn compile(config: &Config, state_dir: &Path) -> Result<CompiledPlan, String
 
     for lane in &agent_lanes {
         listeners.push(ListenerClaim {
-            owner: format!("agent lane {}", lane.id),
+            owner: format!("agent lane {} ({})", lane.id, lane_state(lane.selected)),
             bind: lane.local_listener.bind.clone(),
             port: lane.local_listener.port,
         });
@@ -966,6 +966,10 @@ pub fn compile(config: &Config, state_dir: &Path) -> Result<CompiledPlan, String
         listeners,
         agent_lanes,
     })
+}
+
+fn lane_state(selected: bool) -> &'static str {
+    if selected { "selected" } else { "standby" }
 }
 
 fn compile_tunnels(

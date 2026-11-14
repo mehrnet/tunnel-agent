@@ -78,6 +78,11 @@ Full role and configuration details are in [docs/CONTRACTS.md](docs/CONTRACTS.md
   "version": 3,
   "node_scope": "domestic",
   "bundle": { "root": "/opt/tunnel-agent/current" },
+  "agent": {
+    "poll_interval_secs": 60,
+    "max_active_lanes": 1,
+    "lanes": []
+  },
   "tunnels": []
 }
 ```

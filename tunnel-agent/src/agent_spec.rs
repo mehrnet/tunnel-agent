@@ -100,6 +100,7 @@ pub struct AgentListener {
 #[derive(Clone, Debug)]
 pub struct AgentLanePlan {
     pub id: String,
+    pub selected: bool,
     pub transport: AgentTransport,
     pub direction: AgentDirection,
     pub priority: u16,
@@ -122,27 +123,17 @@ pub fn validate(spec: &AgentSpec) -> Result<(), String> {
 
     let mut ids = std::collections::HashSet::new();
     let mut priorities = std::collections::HashSet::new();
-    let mut enabled = 0usize;
     for lane in &spec.lanes {
         validate_lane(lane)?;
         if !ids.insert(&lane.id) {
             return Err(format!("duplicate agent lane id {:?}", lane.id));
         }
-        if lane.enabled {
-            enabled += 1;
-            if !priorities.insert(lane.priority) {
-                return Err(format!(
-                    "enabled agent lanes must have unique priority {}; use an explicit order",
-                    lane.priority
-                ));
-            }
+        if lane.enabled && !priorities.insert(lane.priority) {
+            return Err(format!(
+                "enabled agent lanes must have unique priority {}; use an explicit order",
+                lane.priority
+            ));
         }
-    }
-    if enabled > usize::from(spec.max_active_lanes) {
-        return Err(format!(
-            "agent has {enabled} enabled lanes but max_active_lanes is {}",
-            spec.max_active_lanes
-        ));
     }
     Ok(())
 }
@@ -154,6 +145,7 @@ pub fn compile_lanes(spec: &AgentSpec) -> Vec<AgentLanePlan> {
         .filter(|lane| lane.enabled)
         .map(|lane| AgentLanePlan {
             id: lane.id.clone(),
+            selected: false,
             transport: lane.transport,
             direction: lane.direction,
             priority: lane.priority,
@@ -162,6 +154,9 @@ pub fn compile_lanes(spec: &AgentSpec) -> Vec<AgentLanePlan> {
         })
         .collect();
     lanes.sort_by_key(|lane| lane.priority);
+    for lane in lanes.iter_mut().take(usize::from(spec.max_active_lanes)) {
+        lane.selected = true;
+    }
     lanes
 }
 
@@ -254,16 +249,19 @@ mod tests {
     }
 
     #[test]
-    fn accepts_an_opaque_lane_and_orders_it_by_priority() {
+    fn selects_only_the_best_ranked_eligible_lanes() {
         let mut lower = lane("8NdSLH0jy7Af3Gu9h");
         lower.priority = 5;
         let spec = AgentSpec {
             poll_interval_secs: 30,
-            max_active_lanes: 2,
+            max_active_lanes: 1,
             lanes: vec![lane("9NdSLH0jy7Af3Gu9h"), lower],
         };
         validate(&spec).expect("valid agent lanes");
-        assert_eq!(compile_lanes(&spec)[0].priority, 5);
+        let lanes = compile_lanes(&spec);
+        assert_eq!(lanes[0].priority, 5);
+        assert!(lanes[0].selected);
+        assert!(!lanes[1].selected);
     }
 
     #[test]
