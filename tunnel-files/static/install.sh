@@ -91,8 +91,22 @@ safe_chunk_name() {
   esac
 }
 
+safe_https_url() {
+  case "$1" in
+    https://*) ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    *[[:space:],\\]*|*'#'*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
 is_chunk_manifest() {
-  [ "$(sed -n '1p' "$1")" = 'TUNNEL_AGENT_BUNDLE_PARTS=1' ]
+  case "$(sed -n '1p' "$1")" in
+    TUNNEL_AGENT_BUNDLE_PARTS=1|TUNNEL_AGENT_BUNDLE_PARTS=2) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 download_chunked_bundle() {
@@ -101,22 +115,24 @@ download_chunked_bundle() {
   destination=$3
   expected_sha=$4
   source_base=${source_url%/*}
+  manifest_format=''
   manifest_sha=''
   manifest_bytes=''
   part_count=0
   seen_names="$tmpdir/chunk-names"
 
-  case "$source_base" in
-    https://*) ;;
-    *) echo "chunked bundle has an unsafe base URL" >&2; return 1 ;;
-  esac
+  safe_https_url "$source_base" || { echo "chunked bundle has an unsafe base URL" >&2; return 1; }
 
   : > "$destination"
   : > "$seen_names"
   first_line=true
   while IFS= read -r line || [ -n "$line" ]; do
     if [ "$first_line" = true ]; then
-      [ "$line" = 'TUNNEL_AGENT_BUNDLE_PARTS=1' ] || return 1
+      case "$line" in
+        TUNNEL_AGENT_BUNDLE_PARTS=1) manifest_format=1 ;;
+        TUNNEL_AGENT_BUNDLE_PARTS=2) manifest_format=2 ;;
+        *) return 1 ;;
+      esac
       first_line=false
       continue
     fi
@@ -136,26 +152,32 @@ download_chunked_bundle() {
         fields=${fields#* }
         part_bytes=${fields%% *}
         [ "$part_bytes" != "$fields" ] || { echo "invalid chunk manifest part" >&2; return 1; }
-        part_name=${fields#* }
-        case "$part_name" in *' '*) echo "invalid chunk name" >&2; return 1;; esac
+        part_source=${fields#* }
+        case "$part_source" in *[[:space:]]*) echo "invalid chunk source" >&2; return 1;; esac
         if [ "${#part_sha}" -ne 64 ] || ! printf '%s' "$part_sha" | grep -Eq '^[0-9a-f]{64}$' || \
-           ! safe_chunk_name "$part_name"; then
+           { [ "$manifest_format" = 1 ] && ! safe_chunk_name "$part_source"; } || \
+           { [ "$manifest_format" = 2 ] && ! safe_https_url "$part_source"; }; then
           echo "invalid chunk manifest part" >&2
           return 1
         fi
         case "$part_bytes" in ''|*[!0-9]*) echo "invalid chunk size" >&2; return 1;; esac
-        if grep -F -x -- "$part_name" "$seen_names" >/dev/null 2>&1; then
-          echo "duplicate chunk name in manifest" >&2
+        if grep -F -x -- "$part_source" "$seen_names" >/dev/null 2>&1; then
+          echo "duplicate chunk source in manifest" >&2
           return 1
         fi
-        printf '%s\n' "$part_name" >> "$seen_names"
+        printf '%s\n' "$part_source" >> "$seen_names"
+        if [ "$manifest_format" = 1 ]; then
+          part_url="$source_base/$part_source"
+        else
+          part_url="$part_source"
+        fi
         part_file="$tmpdir/chunk-$part_count"
-        if ! fetch_to "$source_base/$part_name" "$part_file"; then
-          echo "chunk download failed: $part_name" >&2
+        if ! fetch_to "$part_url" "$part_file"; then
+          echo "chunk download failed: $part_source" >&2
           return 1
         fi
         if [ "$(file_bytes "$part_file")" != "$part_bytes" ] || [ "$(sha256_file "$part_file")" != "$part_sha" ]; then
-          echo "chunk validation failed: $part_name" >&2
+          echo "chunk validation failed: $part_source" >&2
           return 1
         fi
         cat "$part_file" >> "$destination"

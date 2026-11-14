@@ -21,6 +21,8 @@ files_config="$repository_dir/tunnel-files/wrangler.jsonc"
 site_bundle_dir="$files_dir/bundles/$BUNDLE_VERSION"
 domestic_base=${DOMESTIC_BUNDLE_BASE_URL:-}
 domestic_format=${DOMESTIC_BUNDLE_FORMAT:-manifest}
+domestic_amd64_url=${DOMESTIC_BUNDLE_URL_AMD64:-}
+domestic_arm64_url=${DOMESTIC_BUNDLE_URL_ARM64:-}
 api_origin=${TUNNEL_API_ORIGIN:-https://tunnel-api.mehrnet.com}
 chunk_bytes=${BUNDLE_CHUNK_BYTES:-20971520}
 
@@ -35,6 +37,11 @@ esac
 # platform changes and ensure a bundle chunk can always be a static object.
 if [ "$chunk_bytes" -le 0 ] || [ "$chunk_bytes" -gt 25165824 ]; then
   echo "BUNDLE_CHUNK_BYTES must be between 1 and 25165824 bytes" >&2
+  exit 2
+fi
+
+if [ -n "$domestic_base" ] && { [ -n "$domestic_amd64_url" ] || [ -n "$domestic_arm64_url" ]; }; then
+  echo "set either DOMESTIC_BUNDLE_BASE_URL or architecture-specific DOMESTIC_BUNDLE_URL_* values" >&2
   exit 2
 fi
 
@@ -57,6 +64,20 @@ if [ -n "$domestic_base" ]; then
       exit 2
       ;;
   esac
+fi
+
+if [ -n "$domestic_amd64_url" ] || [ -n "$domestic_arm64_url" ]; then
+  if [ -z "$domestic_amd64_url" ] || [ -z "$domestic_arm64_url" ]; then
+    echo "both DOMESTIC_BUNDLE_URL_AMD64 and DOMESTIC_BUNDLE_URL_ARM64 are required" >&2
+    exit 2
+  fi
+  for domestic_url in "$domestic_amd64_url" "$domestic_arm64_url"; do
+    case "$domestic_url" in https://*) ;; *) echo "domestic bundle URL must use HTTPS" >&2; exit 2;; esac
+    if printf '%s' "$domestic_url" | grep -Eq '[[:space:]"\\,?#]'; then
+      echo "domestic bundle URL contains unsafe characters" >&2
+      exit 2
+    fi
+  done
 fi
 
 sha256_file() {
@@ -120,7 +141,13 @@ stage_bundle() {
 
   public_url="/bundles/$BUNDLE_VERSION/$archive.parts"
   domestic_json=null
-  if [ -n "$domestic_base" ]; then
+  if [ -n "$domestic_amd64_url" ]; then
+    case "$architecture" in
+      amd64) domestic_url=$domestic_amd64_url ;;
+      arm64) domestic_url=$domestic_arm64_url ;;
+    esac
+    domestic_json="\"$domestic_url\""
+  elif [ -n "$domestic_base" ]; then
     case "$domestic_format" in
       manifest) domestic_url="${domestic_base%/}/$archive.parts" ;;
       archive) domestic_url="${domestic_base%/}/$archive" ;;

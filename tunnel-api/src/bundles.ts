@@ -15,11 +15,11 @@ function bundlePublicPath(version: string, architecture: Architecture): string {
   return `${bundleArchivePath(version, architecture)}.parts`;
 }
 
-function validDomesticBundleUrl(value: string, expectedManifestPath: string, expectedArchivePath: string): boolean {
+function validDomesticBundleUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash &&
-      (url.pathname.endsWith(expectedManifestPath) || url.pathname.endsWith(expectedArchivePath)) && !/[\s,]/.test(value);
+      !/[\s,]/.test(value);
   } catch {
     return false;
   }
@@ -39,10 +39,9 @@ function parseBundleEntry(
   if (!validArchitecture(architecture) || !expectedArchitectures.delete(architecture) || !HEX_64.test(sha256)) return null;
 
   const expectedManifestPath = bundlePublicPath(version, architecture);
-  const expectedArchivePath = bundleArchivePath(version, architecture);
   if (publicUrl !== expectedManifestPath) return null;
   if (domesticUrl !== null && (typeof domesticUrl !== "string" ||
-    !validDomesticBundleUrl(domesticUrl, expectedManifestPath, expectedArchivePath))) {
+    !validDomesticBundleUrl(domesticUrl))) {
     return null;
   }
   return { architecture, sha256, public_url: publicUrl, domestic_url: domesticUrl };

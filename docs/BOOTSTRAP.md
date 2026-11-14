@@ -145,3 +145,23 @@ The canary should report, for at least seven days:
 
 Only then move one customer listener at a time. Keep the old lane disabled,
 not deleted, through the rollback observation window.
+## Domestic Mirrors
+
+Domestic bundle mirrors are optional HTTPS sources registered by an operator.
+The installer always verifies each archive against the SHA-256 returned by the
+API and falls back to the Cloudflare files origin when a domestic mirror fails.
+
+A mirror may expose a complete archive or a chunk manifest. A v1 chunk
+manifest uses filenames relative to its own URL. A v2 manifest carries direct
+HTTPS URLs for each part, which supports providers that only expose opaque
+per-file public links. Generate a v2 manifest from the canonical v1 manifest:
+
+```sh
+SOURCE_MANIFEST=./bundles/v0.4.6/tunnel-agent-v0.4.6-x86_64-unknown-linux-musl.tar.gz.parts \
+PART_URLS='https://mirror.example/part-a,https://mirror.example/part-b' \
+./tools/mirror-manifest.sh > iran-amd64.parts
+```
+
+Register opaque per-architecture mirror manifests during publishing with
+`DOMESTIC_BUNDLE_URL_AMD64` and `DOMESTIC_BUNDLE_URL_ARM64`. This is mutually
+exclusive with `DOMESTIC_BUNDLE_BASE_URL`.
