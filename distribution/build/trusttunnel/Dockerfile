@@ -63,6 +63,17 @@ RUN case "$RUST_TARGET" in \
         aarch64-unknown-linux-musl) zig_target=aarch64-linux-musl ;; \
         *) echo "unsupported Rust target: $RUST_TARGET" >&2; exit 1 ;; \
     esac \
+    && clang_include=$(find /usr/lib -path '*/llvm-*/lib/clang/*/include' -type d -print -quit) \
+    && test -n "$clang_include" \
+    && install -d /opt/bindgen-includes \
+    && ln -s "$clang_include" /opt/bindgen-includes/clang \
+    && for include in any-linux-any generic-musl "$zig_target"; do \
+        source="/opt/zig/lib/libc/include/$include"; \
+        test -d "$source"; \
+        link_name="$include"; \
+        if [ "$include" = "$zig_target" ]; then link_name=target; fi; \
+        ln -s "$source" "/opt/bindgen-includes/$link_name"; \
+      done \
     && rustup toolchain install 1.95 --profile minimal \
     && rustup target add --toolchain 1.95 "$RUST_TARGET" \
     && printf '%s\n' \
@@ -87,6 +98,10 @@ ENV CMAKE_C_COMPILER=/usr/local/bin/zig-musl-cc
 ENV CMAKE_CXX_COMPILER=/usr/local/bin/zig-musl-cxx
 ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/zig-musl-cc
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/zig-musl-cc
+# BoringSSL is built with the Zig wrappers above. Its bindgen phase instead
+# invokes libclang directly, so give it both libclang's builtin headers and
+# Zig's target musl headers explicitly.
+ENV BINDGEN_EXTRA_CLANG_ARGS="-isystem /opt/bindgen-includes/clang -isystem /opt/bindgen-includes/any-linux-any -isystem /opt/bindgen-includes/generic-musl -isystem /opt/bindgen-includes/target"
 # TrustTunnel pins 1.95 in rust-toolchain.toml. Set it explicitly so the
 # installed musl target is used instead of the base image's toolchain.
 ENV RUSTUP_TOOLCHAIN=1.95
