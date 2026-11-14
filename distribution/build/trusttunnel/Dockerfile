@@ -20,27 +20,23 @@ RUN OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 \
       cargo build --locked --release \
     && strip --strip-unneeded target/release/rathole
 
-FROM rust:1.100-alpine AS trusttunnel
+ARG TARGETARCH
+FROM ghcr.io/rust-cross/rust-musl-cross:${TARGETARCH}-musl AS trusttunnel
 
-# Build TrustTunnel natively for each release architecture.  Its upstream
-# release pipeline uses a real musl GCC toolchain; doing the same avoids the
-# duplicate startup objects that result when Rust's musl CRT is linked through
-# Zig's driver.  The GitHub matrix runs each image natively, not by emulation.
+# Build TrustTunnel with a real musl-cross-make GCC toolchain.  Unlike Zig,
+# this toolchain uses the same startup objects as Rust.  Unlike Alpine, the
+# glibc base can dlopen libclang while TrustTunnel's bindgen step runs.
 ARG TARGETARCH
 ARG RUST_TARGET
 
-RUN apk add --no-cache \
-    bash \
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
     binutils \
-    build-base \
     ca-certificates \
-    clang-dev \
-    cmake \
-    git \
-    linux-headers \
     nasm \
     perl \
-    pkgconf
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN case "$TARGETARCH:$RUST_TARGET" in \
         amd64:x86_64-unknown-linux-musl|arm64:aarch64-unknown-linux-musl) ;; \
@@ -49,13 +45,12 @@ RUN case "$TARGETARCH:$RUST_TARGET" in \
     && rustup toolchain install 1.95 --profile minimal \
     && rustup target add --toolchain 1.95 "$RUST_TARGET"
 
-ENV CC=gcc
-ENV CXX=g++
-ENV CMAKE_C_COMPILER=gcc
-ENV CMAKE_CXX_COMPILER=g++
-ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=gcc
-ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=gcc
-ENV LIBCLANG_PATH=/usr/lib
+ENV CMAKE_C_COMPILER=${TARGET_CC}
+ENV CMAKE_CXX_COMPILER=${TARGET_CXX}
+ENV CC=${TARGET_CC}
+ENV CXX=${TARGET_CXX}
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=${TARGET_CC}
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=${TARGET_CC}
 # TrustTunnel pins 1.95 in rust-toolchain.toml. Set it explicitly so the
 # installed musl target is used instead of the base image's toolchain.
 ENV RUSTUP_TOOLCHAIN=1.95
