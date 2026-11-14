@@ -60,8 +60,7 @@ jobs:
             .
           test -x rust-output/tunnel-agent
           test -x rust-output/wstunnel
-          test -x rust-output/rathole
-      - name: Build static TrustTunnel endpoint
+      - name: Build static compatibility transports
         shell: bash
         env:
           DOCKER_PLATFORM: ${{ matrix.docker_platform }}
@@ -73,6 +72,7 @@ jobs:
             --output type=local,dest=trusttunnel-output \
             .
           test -x trusttunnel-output/trusttunnel_endpoint
+          test -x trusttunnel-output/rathole
       - name: Build static HPNSSH tree
         shell: bash
         run: |
@@ -94,7 +94,7 @@ jobs:
           BUNDLE_TARGET: ${{ matrix.target }}
           TUNNEL_AGENT_BIN: rust-output/tunnel-agent
           WSTUNNEL_BIN: rust-output/wstunnel
-          RATHOLE_BIN: rust-output/rathole
+          RATHOLE_BIN: trusttunnel-output/rathole
           TRUSTTUNNEL_BIN: trusttunnel-output/trusttunnel_endpoint
           HPNSSH_PREFIX: hpn-output/hpnssh
           BUNDLE_OUTPUT_DIR: release
@@ -109,7 +109,7 @@ jobs:
           test -x hpn-output/hpnssh/bin/hpnssh
           test -x hpn-output/hpnssh/sbin/hpnsshd
           test -x rust-output/wstunnel
-          test -x rust-output/rathole
+          test -x trusttunnel-output/rathole
           test -x trusttunnel-output/trusttunnel_endpoint
       - uses: actions/upload-artifact@v4
         with:
