@@ -81,7 +81,7 @@ RUN case "$RUST_TARGET" in \
         '  case "$arg" in' \
         '    --target|-target) skip_next=1 ;;' \
         '    --target=*|-target=*) ;;' \
-        '    *rcrt1.o) rust_final_link=1; args+=("$arg") ;;' \
+        '    *rcrt1.o|*self-contained/crt1.o) rust_final_link=1; args+=("$arg") ;;' \
         '    *) args+=("$arg") ;;' \
         '  esac' \
         'done' > /usr/local/bin/zig-musl-cc \
