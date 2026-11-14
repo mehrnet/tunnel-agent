@@ -75,14 +75,17 @@ RUN case "$RUST_TARGET" in \
         '#!/bin/bash' \
         'args=()' \
         'skip_next=0' \
+        'rust_final_link=0' \
         'for arg in "$@"; do' \
         '  if (( skip_next )); then skip_next=0; continue; fi' \
         '  case "$arg" in' \
         '    --target|-target) skip_next=1 ;;' \
         '    --target=*|-target=*) ;;' \
+        '    *rcrt1.o) rust_final_link=1; args+=("$arg") ;;' \
         '    *) args+=("$arg") ;;' \
         '  esac' \
         'done' > /usr/local/bin/zig-musl-cc \
+    && printf '%s\n' 'if (( rust_final_link )); then args+=("-nostdlib"); fi' >> /usr/local/bin/zig-musl-cc \
     && printf 'exec /opt/zig/zig cc -target %s "%s{args[@]}"\n' "$zig_target" '$' >> /usr/local/bin/zig-musl-cc \
     && sed 's/zig cc/zig c++/' /usr/local/bin/zig-musl-cc > /usr/local/bin/zig-musl-cxx \
     && chmod +x /usr/local/bin/zig-musl-cc /usr/local/bin/zig-musl-cxx
