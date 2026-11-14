@@ -231,7 +231,7 @@ fi
 package="$tmpdir/tunnel-agent.tar.gz"
 downloaded=false
 urls_file="$tmpdir/bundle-urls"
-printf '%s' "$bundle_urls" | tr ',' '\n' > "$urls_file"
+printf '%s\n' "$bundle_urls" | tr ',' '\n' > "$urls_file"
 while IFS= read -r url; do
   [ -n "$url" ] || continue
   case "$url" in
