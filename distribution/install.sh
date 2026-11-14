@@ -80,6 +80,106 @@ sha256_file() {
   fi
 }
 
+file_bytes() {
+  wc -c < "$1" | tr -d '[:space:]'
+}
+
+safe_chunk_name() {
+  case "$1" in
+    ''|*/*|*..*|*[!A-Za-z0-9._+-]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+is_chunk_manifest() {
+  [ "$(sed -n '1p' "$1")" = 'TUNNEL_AGENT_BUNDLE_PARTS=1' ]
+}
+
+download_chunked_bundle() {
+  source_url=$1
+  manifest=$2
+  destination=$3
+  expected_sha=$4
+  source_base=${source_url%/*}
+  manifest_sha=''
+  manifest_bytes=''
+  part_count=0
+  seen_names="$tmpdir/chunk-names"
+
+  case "$source_base" in
+    https://*) ;;
+    *) echo "chunked bundle has an unsafe base URL" >&2; return 1 ;;
+  esac
+
+  : > "$destination"
+  : > "$seen_names"
+  first_line=true
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$first_line" = true ]; then
+      [ "$line" = 'TUNNEL_AGENT_BUNDLE_PARTS=1' ] || return 1
+      first_line=false
+      continue
+    fi
+    case "$line" in
+      ARCHIVE_SHA256=*)
+        [ -z "$manifest_sha" ] || { echo "duplicate archive SHA in chunk manifest" >&2; return 1; }
+        manifest_sha=${line#ARCHIVE_SHA256=}
+        ;;
+      ARCHIVE_BYTES=*)
+        [ -z "$manifest_bytes" ] || { echo "duplicate archive size in chunk manifest" >&2; return 1; }
+        manifest_bytes=${line#ARCHIVE_BYTES=}
+        ;;
+      PART\ *)
+        fields=${line#PART }
+        part_sha=${fields%% *}
+        [ "$part_sha" != "$fields" ] || { echo "invalid chunk manifest part" >&2; return 1; }
+        fields=${fields#* }
+        part_bytes=${fields%% *}
+        [ "$part_bytes" != "$fields" ] || { echo "invalid chunk manifest part" >&2; return 1; }
+        part_name=${fields#* }
+        case "$part_name" in *' '*) echo "invalid chunk name" >&2; return 1;; esac
+        if [ "${#part_sha}" -ne 64 ] || ! printf '%s' "$part_sha" | grep -Eq '^[0-9a-f]{64}$' || \
+           ! safe_chunk_name "$part_name"; then
+          echo "invalid chunk manifest part" >&2
+          return 1
+        fi
+        case "$part_bytes" in ''|*[!0-9]*) echo "invalid chunk size" >&2; return 1;; esac
+        if grep -F -x -- "$part_name" "$seen_names" >/dev/null 2>&1; then
+          echo "duplicate chunk name in manifest" >&2
+          return 1
+        fi
+        printf '%s\n' "$part_name" >> "$seen_names"
+        part_file="$tmpdir/chunk-$part_count"
+        if ! fetch_to "$source_base/$part_name" "$part_file"; then
+          echo "chunk download failed: $part_name" >&2
+          return 1
+        fi
+        if [ "$(file_bytes "$part_file")" != "$part_bytes" ] || [ "$(sha256_file "$part_file")" != "$part_sha" ]; then
+          echo "chunk validation failed: $part_name" >&2
+          return 1
+        fi
+        cat "$part_file" >> "$destination"
+        part_count=$((part_count + 1))
+        ;;
+      *)
+        echo "invalid chunk manifest record" >&2
+        return 1
+        ;;
+    esac
+  done < "$manifest"
+
+  if [ "$part_count" -eq 0 ] || [ "$manifest_sha" != "$expected_sha" ] || \
+     [ "${#manifest_sha}" -ne 64 ] || ! printf '%s' "$manifest_sha" | grep -Eq '^[0-9a-f]{64}$'; then
+    echo "chunk manifest does not match the expected archive" >&2
+    return 1
+  fi
+  case "$manifest_bytes" in ''|*[!0-9]*) echo "invalid archive size in chunk manifest" >&2; return 1;; esac
+  if [ "$(file_bytes "$destination")" != "$manifest_bytes" ] || [ "$(sha256_file "$destination")" != "$expected_sha" ]; then
+    echo "reconstructed bundle validation failed" >&2
+    return 1
+  fi
+}
+
 read_env_value() {
   key=$1
   file=$2
@@ -116,10 +216,19 @@ while IFS= read -r url; do
     https://*) ;;
     *) echo "bootstrap returned an unsafe bundle URL" >&2; exit 1 ;;
   esac
-  rm -f "$package"
-  if ! fetch_to "$url" "$package"; then
+  source_file="$tmpdir/bundle-source"
+  rm -f "$package" "$source_file"
+  if ! fetch_to "$url" "$source_file"; then
     echo "bundle mirror failed: $url" >&2
     continue
+  fi
+  if is_chunk_manifest "$source_file"; then
+    if ! download_chunked_bundle "$url" "$source_file" "$package" "$bundle_sha256"; then
+      echo "chunked bundle mirror failed: $url" >&2
+      continue
+    fi
+  else
+    mv "$source_file" "$package"
   fi
   actual=$(sha256_file "$package")
   if [ "$actual" != "$bundle_sha256" ]; then

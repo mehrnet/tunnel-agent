@@ -19,7 +19,8 @@ or peer seeding before it could apply an update.
   `/opt/tunnel-agent/current` bundle. No lane activation downloads a binary.
 - Version 2 source selection remains explicit through `node_scope`; there is no
   geography lookup or reachability inference.
-- Every versioned bundle archive is SHA-256 checked before it is published.
+- Every versioned bundle archive is SHA-256 checked before it is published;
+  static mirrors serve its signed chunk manifest and every immutable chunk.
 - Typed contracts claim local listeners. Two contracts claiming the same
   `bind:port` fail validation before anything starts.
 - Every contract defaults to `"enabled": true`. A disabled contract retains its
@@ -164,7 +165,7 @@ a substitute for HPNSSH, WSTunnel, or Rathole lanes.
 ## Rollout model
 
 1. Build domestic and foreign mirror entries for every immutable release bundle
-   with an exact version and checksum.
+   with an exact version, checksum, manifest, and complete chunk set.
 2. Install the static agent bundle from the mirror selected for the node class.
 3. Deploy a v3 manifest containing only an additional canary lane to the
    owning node's desired document.

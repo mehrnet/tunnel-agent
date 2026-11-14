@@ -117,7 +117,7 @@ function bundleTarget(architecture: Architecture): string {
 }
 
 function bundlePublicPath(version: string, architecture: Architecture): string {
-  return `/bundles/${version}/tunnel-agent-${version}-${bundleTarget(architecture)}.tar.gz`;
+  return `/bundles/${version}/tunnel-agent-${version}-${bundleTarget(architecture)}.tar.gz.parts`;
 }
 
 function validDomesticBundleUrl(value: string, expectedPath: string): boolean {

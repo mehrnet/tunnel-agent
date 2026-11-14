@@ -44,17 +44,22 @@ contents with Wrangler so the global static site serves:
 
 ```text
 /install.sh
-/bundles/vX.Y.Z/tunnel-agent-vX.Y.Z-x86_64-unknown-linux-musl.tar.gz
-/bundles/vX.Y.Z/tunnel-agent-vX.Y.Z-aarch64-unknown-linux-musl.tar.gz
+/bundles/vX.Y.Z/tunnel-agent-vX.Y.Z-x86_64-unknown-linux-musl.tar.gz.parts
+/bundles/vX.Y.Z/tunnel-agent-vX.Y.Z-x86_64-unknown-linux-musl.tar.gz.part-0000
+/bundles/vX.Y.Z/tunnel-agent-vX.Y.Z-aarch64-unknown-linux-musl.tar.gz.parts
+/bundles/vX.Y.Z/tunnel-agent-vX.Y.Z-aarch64-unknown-linux-musl.tar.gz.part-0000
 ```
 
-Copy the exact `install.sh` and archive files to the Iranian mirror. A domestic
-bundle URL must be a versioned immutable URL containing the same bytes and
+Cloudflare static assets are limited to 25 MiB, so each `.parts` manifest lists
+the SHA-256, byte count, and immutable chunk filenames for one archive. Copy
+the exact `install.sh`, each `.parts` manifest, and every chunk named by that
+manifest to the Iranian mirror. A domestic bundle URL must be a versioned,
+immutable manifest URL with chunks containing the same bytes and final archive
 SHA-256 as its global counterpart.
 
 Use the release activation script rather than hand-writing D1 SQL. It validates
-both generated `.sha256` files, deploys the archive assets first, and then
-atomically marks one archive active per architecture:
+both generated `.sha256` files, deploys the manifest and chunk assets first,
+and then atomically marks one archive active per architecture:
 
 ```sh
 BUNDLE_VERSION=vX.Y.Z \
@@ -66,7 +71,7 @@ DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
 
 `BUNDLE_PUBLISH_TOKEN` is a Worker secret. The publisher deploys static assets
 first, then invokes the narrow `/api/v1/admin/bundles/activate` endpoint. That
-endpoint only accepts the two expected architecture archive paths for one
+endpoint only accepts the two expected architecture manifest paths for one
 version and switches their D1 rows in one atomic batch; it is not a generic
 database or manifest API.
 
@@ -106,8 +111,9 @@ Use non-production ports and leave the legacy hpn/jet services untouched:
 Run one returned command on each matching host. The installer:
 
 1. calls `/api/v1/bootstrap` with its short-lived enrollment grant;
-2. downloads a complete architecture bundle from its prescribed mirror order;
-3. validates the SHA-256 before atomically publishing `/opt/tunnel-agent/current`;
+2. downloads and validates a complete architecture bundle from its prescribed
+   mirror order, chunk by chunk when given a `.parts` manifest;
+3. validates the final SHA-256 before atomically publishing `/opt/tunnel-agent/current`;
 4. creates an HPNSSH identity; and
 5. calls `/api/v1/enroll` once, writes a v3 manifest and revision marker, and
    starts `tunnel-agent agent` through `tunnel-agent.service`.

@@ -14,8 +14,8 @@ https://tunnel-agent.mehrnet.com/
 
 - `/api/*` is a Cloudflare Worker: Telegram webhook, ownership, clusters,
   enrollment, immutable bundle metadata, and node documents in D1.
-- Every other path is a static asset: website, installer, versioned bundles,
-  and checksums.
+- Every other path is a static asset: website, installer, versioned bundle
+  manifests, and immutable archive chunks.
 
 ## Static bundle
 
@@ -34,14 +34,18 @@ architecture:
     └── libexec/
 ```
 
-The installer verifies the archive SHA-256 received from the Worker before it
-publishes `/opt/tunnel-agent/releases/<version>` and atomically advances the
-`current` symlink. A tunnel toggle therefore only changes process selection;
-it never blocks on an artifact download.
+Cloudflare static assets have a 25 MiB object limit, so a bundle is published
+as a small `.tar.gz.parts` manifest and immutable sub-25 MiB archive chunks.
+The installer verifies each chunk, reconstructs the archive, and verifies the
+archive SHA-256 received from the Worker before it publishes
+`/opt/tunnel-agent/releases/<version>` and atomically advances the `current`
+symlink. A tunnel toggle therefore only changes process selection; it never
+blocks on an artifact download.
 
 Domestic nodes receive an Iranian mirror URL first, then the static site as a
 verified fallback. Foreign nodes receive the static site directly. Mirrors
-always serve the same versioned archive and hash.
+always serve the same versioned manifest, every referenced chunk, and final
+archive hash.
 
 ## Contracts
 

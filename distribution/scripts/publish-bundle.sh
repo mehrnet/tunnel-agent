@@ -1,5 +1,5 @@
 #!/bin/sh
-# Publish two checksum-verified release archives before activating them in D1.
+# Publish checksum-verified release archives as Cloudflare-sized static chunks.
 set -eu
 
 : "${BUNDLE_VERSION:?set BUNDLE_VERSION, for example v0.4.0}"
@@ -17,6 +17,21 @@ script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 distribution_dir=$(CDPATH='' cd -- "$script_dir/.." && pwd)
 site_bundle_dir="$distribution_dir/public/bundles/$BUNDLE_VERSION"
 domestic_base=${DOMESTIC_BUNDLE_BASE_URL:-}
+chunk_bytes=${BUNDLE_CHUNK_BYTES:-20971520}
+
+case "$chunk_bytes" in
+  ''|*[!0-9]*)
+    echo "BUNDLE_CHUNK_BYTES must be a positive integer" >&2
+    exit 2
+    ;;
+esac
+
+# Cloudflare Workers static assets are limited to 25 MiB. Leave margin for
+# platform changes and ensure a bundle chunk can always be an ASSETS object.
+if [ "$chunk_bytes" -le 0 ] || [ "$chunk_bytes" -gt 25165824 ]; then
+  echo "BUNDLE_CHUNK_BYTES must be between 1 and 25165824 bytes" >&2
+  exit 2
+fi
 
 if [ -n "$domestic_base" ]; then
   case "$domestic_base" in
@@ -43,6 +58,10 @@ sha256_file() {
   fi
 }
 
+file_bytes() {
+  wc -c < "$1" | tr -d '[:space:]'
+}
+
 stage_bundle() {
   architecture=$1
   target=$2
@@ -62,13 +81,35 @@ stage_bundle() {
     exit 1
   fi
 
-  install -D -m 0644 "$source_archive" "$site_bundle_dir/$archive"
-  install -D -m 0644 "$source_checksum" "$site_bundle_dir/$archive.sha256"
+  archive_bytes=$(file_bytes "$source_archive")
+  manifest="$site_bundle_dir/$archive.parts"
+  manifest_tmp=$(mktemp)
+  parts_tmp=$(mktemp -d)
 
-  public_url="/bundles/$BUNDLE_VERSION/$archive"
+  # Do not publish the archive itself: an ARM64 release is larger than the
+  # Cloudflare ASSETS object limit. The installer verifies every chunk and
+  # the reconstructed archive against the SHA registered in D1.
+  split -b "$chunk_bytes" -d -a 4 "$source_archive" "$parts_tmp/part-"
+  {
+    printf '%s\n' 'TUNNEL_AGENT_BUNDLE_PARTS=1'
+    printf 'ARCHIVE_SHA256=%s\n' "$actual"
+    printf 'ARCHIVE_BYTES=%s\n' "$archive_bytes"
+    for part in "$parts_tmp"/part-*; do
+      part_name="${archive}.part-${part##*-}"
+      part_sha=$(sha256_file "$part")
+      part_bytes=$(file_bytes "$part")
+      install -D -m 0644 "$part" "$site_bundle_dir/$part_name"
+      printf 'PART %s %s %s\n' "$part_sha" "$part_bytes" "$part_name"
+    done
+  } > "$manifest_tmp"
+  install -D -m 0644 "$manifest_tmp" "$manifest"
+  rm -rf "$parts_tmp"
+  rm -f "$manifest_tmp"
+
+  public_url="/bundles/$BUNDLE_VERSION/$archive.parts"
   domestic_json=null
   if [ -n "$domestic_base" ]; then
-    domestic_url="${domestic_base%/}/$archive"
+    domestic_url="${domestic_base%/}/$archive.parts"
     domestic_json="\"$domestic_url\""
   fi
 

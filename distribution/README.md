@@ -25,11 +25,12 @@ wrangler secret put TELEGRAM_WEBHOOK_SECRET
    webhook secret.
 6. Set `BUNDLE_PUBLISH_TOKEN` as a Worker secret. The release publisher uses
    the scoped activation endpoint to atomically register one active amd64 and
-   arm64 bundle. The installer rejects enrollment until exact release archives
-   and SHA-256 values are registered.
+   arm64 bundle. The installer rejects enrollment until exact release archive
+   hashes and static chunk manifests are registered.
 
-The scripted release activation verifies both archives, deploys them as static
-assets, then activates the matching D1 rows:
+The scripted release activation verifies both archives, splits them into
+sub-25 MiB static chunks, deploys the manifests and chunks as static assets,
+then activates the matching D1 rows:
 
 ```sh
 BUNDLE_VERSION=vX.Y.Z \
@@ -41,9 +42,9 @@ DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
 
 `DOMESTIC_BOOTSTRAP_URL` is an optional Worker secret used only to change the
 installer URL sent to domestic nodes. Point it to an Iranian mirror of this
-exact `install.sh`; that mirror must expose the same versioned archive as
-`bundle_releases.domestic_url`. Until it is set, domestic nodes safely receive
-the official installer URL.
+exact `install.sh`; that mirror must expose the same versioned `.parts`
+manifest and every referenced chunk as `bundle_releases.domestic_url`. Until
+it is set, domestic nodes safely receive the official installer URL.
 
 ## Required secret handling
 
