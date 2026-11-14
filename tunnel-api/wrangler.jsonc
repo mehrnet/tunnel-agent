@@ -23,7 +23,7 @@
     "FILES_ORIGIN": "https://tunnel-files.mehrnet.com",
     "TELEGRAM_BOT_USERNAME": "TunnelOwnersBot",
     "ENROLLMENT_TTL_SECONDS": "900",
-    "DOMESTIC_CAPSULE_BUNDLE_VERSION": "v0.4.8"
+    "DOMESTIC_CAPSULE_BUNDLE_VERSION": "v0.4.9"
   }
   // Set TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, BUNDLE_PUBLISH_TOKEN,
   // and optionally DOMESTIC_BOOTSTRAP_URL with `wrangler secret put`; no
