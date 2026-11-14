@@ -36,6 +36,48 @@ or peer seeding before it could apply an update.
   the active plan, and retains the last working plan on fetch or validation
   failure.
 
+## Agent Control Lanes
+
+`agent` is the only top-level object for tunnel-agent runtime behavior. It is
+strictly separate from `tunnels`: a management lane never exposes customer
+traffic, SOCKS, or a public listener. Version 3 manifests may declare a small,
+ordered set of future control lanes:
+
+```json
+{
+  "agent": {
+    "poll_interval_secs": 30,
+    "max_active_lanes": 2,
+    "lanes": [{
+      "id": "8NdSLH0jy7Af3Gu9h",
+      "transport": "wstunnel",
+      "direction": "foreign_to_domestic",
+      "priority": 10,
+      "peer": {
+        "node_id": "d6caf939-b959-4471-918f-2e05ca282a37",
+        "host": "de-1.example.net",
+        "port": 4443
+      },
+      "local_listener": {"bind": "127.0.0.1", "port": 42022}
+    }]
+  }
+}
+```
+
+Lane IDs are exactly 17 base62 characters. The API's `agentLaneId` helper
+derives them from the first 96 bits of SHA-256 over this canonical identity:
+`v1\0cluster-uuid\0local-node-uuid\0peer-node-uuid\0transport\0direction`.
+They are not labels such as `hpn-primary` or `ws-secondary`. The manifest
+rejects public or privileged management listeners, duplicate enabled priorities,
+more active lanes than the configured limit, and listener collisions with typed
+tunnel contracts.
+
+This first contract increment only validates and exposes the intended lane
+plan. It deliberately does **not** start a management transport or claim a
+live connection. The next increment will render role-specific HPNSSH and
+WSTunnel control contracts, install the cluster trust material, and select the
+highest-priority healthy lane without mixing it with customer traffic.
+
 ## HPNSSH
 
 `hpnssh.forward.v1` runs an HPNSSH client. `direction` means the SSH forwarding

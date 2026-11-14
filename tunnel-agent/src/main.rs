@@ -1,4 +1,5 @@
 mod agent;
+mod agent_spec;
 mod capsule;
 mod manifest;
 mod runtime;
@@ -68,8 +69,9 @@ enum CommandKind {
         node_id_file: PathBuf,
         #[arg(long, default_value = "/etc/tunnel-agent/node-token")]
         node_token_file: PathBuf,
-        #[arg(long, default_value_t = 60)]
-        poll_interval_secs: u64,
+        /// Override agent.poll_interval_secs from the manifest for this process.
+        #[arg(long)]
+        poll_interval_secs: Option<u64>,
         /// Use the signed domestic bootstrap state only; never call the API.
         #[arg(long)]
         offline: bool,
@@ -96,6 +98,15 @@ fn print_plan(plan: &CompiledPlan) -> Result<(), String> {
         "generated_files": plan.generated_files.iter()
             .map(|file| file.path.display().to_string())
             .collect::<Vec<_>>(),
+        "agent_lanes": plan.agent_lanes.iter().map(|lane| serde_json::json!({
+            "id": lane.id,
+            "transport": lane.transport.as_str(),
+            "direction": lane.direction.as_str(),
+            "priority": lane.priority,
+            "peer_node_id": lane.peer.node_id,
+            "peer": format!("{}:{}", lane.peer.host, lane.peer.port),
+            "local_listener": format!("{}:{}", lane.local_listener.bind, lane.local_listener.port),
+        })).collect::<Vec<_>>(),
     });
     println!(
         "{}",
@@ -116,10 +127,11 @@ async fn main() -> ExitCode {
         {
             Ok((config, plan)) => {
                 println!(
-                    "valid version={} processes={} tunnels={} listeners={}",
+                    "valid version={} processes={} tunnels={} agent_lanes={} listeners={}",
                     config.version,
                     plan.processes.len(),
                     config.tunnels.len(),
+                    plan.agent_lanes.len(),
                     plan.listeners.len()
                 );
                 ExitCode::SUCCESS

@@ -25,7 +25,7 @@ pub(crate) struct AgentSettings {
     pub(crate) api_file: PathBuf,
     pub(crate) node_id_file: PathBuf,
     pub(crate) node_token_file: PathBuf,
-    pub(crate) poll_interval_secs: u64,
+    pub(crate) poll_interval_secs: Option<u64>,
     pub(crate) offline: bool,
 }
 
@@ -156,13 +156,11 @@ fn fetch_document(
 }
 
 pub(crate) async fn reconcile(settings: AgentSettings) -> Result<(), String> {
-    if settings.poll_interval_secs < 5 {
-        return Err("poll_interval_secs must be at least 5".to_owned());
-    }
     let mut active_config = manifest::load_config(&settings.config_path)?;
     if active_config.version != 3 {
         return Err("agent requires a version 3 bootstrap manifest".to_owned());
     }
+    let poll_interval_secs = effective_poll_interval(&settings, &active_config)?;
     if settings.offline {
         return runtime::run(manifest::compile(&active_config, &settings.state_dir)?).await;
     }
@@ -186,8 +184,7 @@ pub(crate) async fn reconcile(settings: AgentSettings) -> Result<(), String> {
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(|error| format!("cannot build API client: {error}"))?;
-    let mut poll = interval(Duration::from_secs(settings.poll_interval_secs));
-    poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut poll = polling_interval(poll_interval_secs);
     let shutdown = crate::runtime::wait_for_shutdown();
     tokio::pin!(shutdown);
 
@@ -212,6 +209,7 @@ pub(crate) async fn reconcile(settings: AgentSettings) -> Result<(), String> {
                                 active_config = config;
                                 active_revision = document.revision;
                                 etag = Some(new_etag);
+                                poll = polling_interval(effective_poll_interval(&settings, &active_config)?);
                             }
                             Err(error) => eprintln!(
                                 "document revision={} rejected; retaining revision={active_revision}: {error}",
@@ -224,6 +222,22 @@ pub(crate) async fn reconcile(settings: AgentSettings) -> Result<(), String> {
             }
         }
     }
+}
+
+fn effective_poll_interval(settings: &AgentSettings, config: &Config) -> Result<u64, String> {
+    let interval = settings
+        .poll_interval_secs
+        .unwrap_or(config.agent.poll_interval_secs);
+    if interval < 5 {
+        return Err("poll_interval_secs must be at least 5".to_owned());
+    }
+    Ok(interval)
+}
+
+fn polling_interval(seconds: u64) -> tokio::time::Interval {
+    let mut poll = interval(Duration::from_secs(seconds));
+    poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    poll
 }
 
 async fn request_document(
