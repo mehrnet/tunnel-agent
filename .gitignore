@@ -5,4 +5,5 @@
 /distribution/node_modules/
 /distribution/public/bundles/
 /distribution/public/install.sh
+/vendor/
 
