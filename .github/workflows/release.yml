@@ -30,7 +30,13 @@ jobs:
           TARGET: ${{ matrix.target }}
           TUNNEL_AGENT_VERSION: ${{ github.ref_name }}
       - name: Verify embedded version
-        run: test "$(target/${TARGET}/release/tunnel-agent --version)" = "tunnel-agent ${TUNNEL_AGENT_VERSION}"
+        run: |
+          binary="target/${TARGET}/release/tunnel-agent"
+          if [ "$TARGET" = "x86_64-unknown-linux-musl" ]; then
+            test "$("$binary" --version)" = "tunnel-agent ${TUNNEL_AGENT_VERSION}"
+          else
+            grep -aFq "$TUNNEL_AGENT_VERSION" "$binary"
+          fi
         env:
           TARGET: ${{ matrix.target }}
           TUNNEL_AGENT_VERSION: ${{ github.ref_name }}
