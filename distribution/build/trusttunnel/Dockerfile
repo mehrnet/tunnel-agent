@@ -63,7 +63,8 @@ RUN case "$RUST_TARGET" in \
         aarch64-unknown-linux-musl) zig_target=aarch64-linux-musl ;; \
         *) echo "unsupported Rust target: $RUST_TARGET" >&2; exit 1 ;; \
     esac \
-    && rustup target add "$RUST_TARGET" \
+    && rustup toolchain install 1.95 --profile minimal \
+    && rustup target add --toolchain 1.95 "$RUST_TARGET" \
     && printf '#!/bin/sh\nexec /opt/zig/zig cc -target %s "$@"\n' "$zig_target" > /usr/local/bin/zig-musl-cc \
     && printf '#!/bin/sh\nexec /opt/zig/zig c++ -target %s "$@"\n' "$zig_target" > /usr/local/bin/zig-musl-cxx \
     && chmod +x /usr/local/bin/zig-musl-cc /usr/local/bin/zig-musl-cxx
@@ -74,6 +75,9 @@ ENV CMAKE_C_COMPILER=/usr/local/bin/zig-musl-cc
 ENV CMAKE_CXX_COMPILER=/usr/local/bin/zig-musl-cxx
 ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/zig-musl-cc
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/zig-musl-cc
+# TrustTunnel pins 1.95 in rust-toolchain.toml. Set it explicitly so the
+# installed musl target is used instead of the base image's toolchain.
+ENV RUSTUP_TOOLCHAIN=1.95
 
 WORKDIR /src/trusttunnel
 COPY vendor/trusttunnel /src/trusttunnel
