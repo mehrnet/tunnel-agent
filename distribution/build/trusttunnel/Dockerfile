@@ -25,6 +25,7 @@ FROM rust:1.100-alpine3.21 AS trusttunnel
 RUN apk add --no-cache \
     binutils \
     build-base \
+    clang19-libclang \
     cmake \
     git \
     linux-headers \
