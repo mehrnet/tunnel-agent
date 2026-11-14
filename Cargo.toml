@@ -1,0 +1,22 @@
+[package]
+name = "tunnel-agent"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Low-footprint supervisor for external tunnel processes"
+repository = "https://github.com/mehrnet/tunnel-agent"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+libc = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.48", features = ["macros", "process", "rt", "signal", "sync", "time"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+panic = "abort"
+strip = "symbols"
+
