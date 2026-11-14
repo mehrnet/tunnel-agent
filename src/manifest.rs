@@ -776,6 +776,12 @@ fn validate_rathole(spec: &RatholeService) -> Result<(), String> {
             spec.id
         ));
     }
+    if spec.role == RatholeRole::Server && spec.transport.is_some() {
+        return Err(format!(
+            "tunnel {:?} does not support Rathole server transport tuning in this contract revision",
+            spec.id
+        ));
+    }
     match spec.role {
         RatholeRole::Server
             if spec.control.bind.as_deref().unwrap_or_default().is_empty()
@@ -1139,19 +1145,22 @@ fn render_rathole(spec: &RatholeService) -> String {
         }
     }
     if let Some(transport) = &spec.transport {
-        output.push_str(match spec.role {
-            RatholeRole::Server => "\n[server.transport]\n",
-            RatholeRole::Client => "\n[client.transport]\n",
-        });
+        // Rathole documents TCP knobs under client.transport.tcp. Server-side
+        // transport tuning has a different surface and is intentionally rejected
+        // until it has its own complete contract.
+        output.push_str("\n[client.transport]\n");
         output.push_str(&format!(
             "type = {}\n",
             toml_string(rathole_transport_name(transport.kind))
         ));
-        if let Some(nodelay) = transport.nodelay {
-            output.push_str(&format!("nodelay = {nodelay}\n"));
-        }
-        if let Some(keepalive_secs) = transport.keepalive_secs {
-            output.push_str(&format!("keepalive_secs = {keepalive_secs}\n"));
+        if transport.nodelay.is_some() || transport.keepalive_secs.is_some() {
+            output.push_str("\n[client.transport.tcp]\n");
+            if let Some(nodelay) = transport.nodelay {
+                output.push_str(&format!("nodelay = {nodelay}\n"));
+            }
+            if let Some(keepalive_secs) = transport.keepalive_secs {
+                output.push_str(&format!("keepalive_secs = {keepalive_secs}\n"));
+            }
         }
     }
     for service in &spec.services {
@@ -1688,5 +1697,31 @@ mod tests {
             b"test-binary"
         );
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rathole_client_tcp_tuning_uses_the_documented_table() {
+        let raw = r#"{
+          "version": 2,
+          "artifacts": [{
+            "id": "rathole", "version": "v1", "binary": "rathole",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "sources": [{"url": "https://example.test/rathole"}]
+          }],
+          "tunnels": [{
+            "contract": "rathole.service.v1", "id": "client", "artifact": "rathole",
+            "role": "client", "control": {"remote": "server.example:2333"},
+            "transport": {"type": "tcp", "nodelay": true, "keepalive_secs": 20},
+            "services": [{"id": "xhttp", "token": "secret", "local": "127.0.0.1:48443"}]
+          }]
+        }"#;
+        let config: Config = serde_json::from_str(raw).expect("valid rathole client schema");
+        let plan = compile(&config, Path::new("/state")).expect("valid rathole client plan");
+        assert!(
+            plan.generated_files[0]
+                .content
+                .contains("[client.transport.tcp]")
+        );
+        assert!(plan.generated_files[0].content.contains("nodelay = true"));
     }
 }
