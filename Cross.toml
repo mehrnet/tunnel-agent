@@ -1,0 +1,2 @@
+[build.env]
+passthrough = ["TUNNEL_AGENT_VERSION"]

@@ -29,6 +29,11 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           TUNNEL_AGENT_VERSION: ${{ github.ref_name }}
+      - name: Verify embedded version
+        run: test "$(target/${TARGET}/release/tunnel-agent --version)" = "tunnel-agent ${TUNNEL_AGENT_VERSION}"
+        env:
+          TARGET: ${{ matrix.target }}
+          TUNNEL_AGENT_VERSION: ${{ github.ref_name }}
       - name: Package release asset
         run: |
           cp "target/${TARGET}/release/tunnel-agent" "tunnel-agent-${TARGET}"
