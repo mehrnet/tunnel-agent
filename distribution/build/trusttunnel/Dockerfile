@@ -72,8 +72,8 @@ RUN case "$RUST_TARGET" in \
         'for arg in "$@"; do' \
         '  if (( skip_next )); then skip_next=0; continue; fi' \
         '  case "$arg" in' \
-        '    --target) skip_next=1 ;;' \
-        '    --target=*) ;;' \
+        '    --target|-target) skip_next=1 ;;' \
+        '    --target=*|-target=*) ;;' \
         '    *) args+=("$arg") ;;' \
         '  esac' \
         'done' > /usr/local/bin/zig-musl-cc \
