@@ -1,13 +1,19 @@
 # Static distribution assets
 
-Publish this directory to the Cloudflare ASSETS site behind
-`tunnel-agent.mehrnet.com`. Keep assets immutable by release path:
+Publish `distribution/public` with the adjacent `wrangler.jsonc` to the
+Cloudflare ASSETS site behind `tunnel-agent.mehrnet.com`. The release workflow
+uploads an artifact named `tunnel-agent-static-assets-vX.Y.Z` ready for this
+directory. Keep assets immutable by release path:
 
 ```text
 /install.sh
 /releases/v0.2.0/tunnel-agent-x86_64-unknown-linux-musl.tar.gz
 /releases/v0.2.0/tunnel-agent-aarch64-unknown-linux-musl.tar.gz
 ```
+
+Until the release workflow can run, place a manually verified package and its
+matching `.sha256` file in the same versioned path. Never overwrite an existing
+version directory.
 
 The public site is a transport mirror, not the source of truth. MehrControl
 pins artifact URLs and SHA-256 values in each desired-state document. A domestic

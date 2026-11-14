@@ -69,3 +69,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" release/* --generate-notes --verify-tag --repo "$GITHUB_REPOSITORY"
+
+  static-assets:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Assemble immutable static asset bundle
+        run: |
+          release_dir="distribution/public/releases/${GITHUB_REF_NAME}"
+          rm -rf distribution/public/releases
+          mkdir -p "$release_dir"
+          cp distribution/install.sh distribution/public/install.sh
+          cp release/* "$release_dir/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tunnel-agent-static-assets-${{ github.ref_name }}
+          path: distribution/public
+          if-no-files-found: error
