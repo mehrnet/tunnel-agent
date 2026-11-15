@@ -69,3 +69,14 @@ authority. It cannot manufacture a desired-state revision because domestic
 nodes verify the API signature locally. The current cluster-wide SSH key is a
 bootstrap compatibility boundary; replace it with rotated per-foreign-node
 keys before allowing untrusted foreign membership.
+
+### Relay-authorized renewal
+
+An enrolled foreign member may request `POST
+/api/v1/nodes/<foreign-node-id>/clusters/<cluster-id>/domestic-nodes/<domestic-node-id>/capsule`
+using its node bearer credential. The API permits this only when the caller is
+a foreign member and the active domestic node is the sole domestic member of
+that exact cluster. It returns a short-lived, API-signed bootstrap capsule and
+records an audit event. This endpoint exists for operator-driven recovery of a
+domestic node without putting an API credential on that node; it cannot modify
+the domestic desired document.

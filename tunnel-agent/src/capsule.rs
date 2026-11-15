@@ -259,7 +259,7 @@ fn valid_uuid(value: &str) -> bool {
 }
 
 fn valid_url(value: &str) -> bool {
-    value.starts_with("https://")
+    (value.starts_with("https://") || value.starts_with("http://dl.mehr-mir.ir/"))
         && !value.is_empty()
         && !value
             .bytes()
@@ -320,5 +320,14 @@ mod tests {
         let last = capsule.pop().expect("last character");
         capsule.push(if last == 'z' { 'y' } else { 'z' });
         assert!(decode_base62(&capsule).is_err());
+    }
+
+    #[test]
+    fn accepts_only_the_registered_http_domestic_mirror() {
+        assert!(valid_url(
+            "http://dl.mehr-mir.ir/bundles/v0.4.11/agent.parts"
+        ));
+        assert!(valid_url("https://mehrnat.ir/bundles/v0.4.11/agent.parts"));
+        assert!(!valid_url("http://example.com/agent.parts"));
     }
 }

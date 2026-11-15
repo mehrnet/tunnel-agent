@@ -1,9 +1,11 @@
 import { clusterControlPublicKey } from "./cluster-keys";
 import { registeredDomesticUrls } from "./bundles";
 import { base62Capsule, base64Url } from "./encoding";
+import { error, json } from "./http";
 import type { BundleRow, Env, NodeRow } from "./models";
+import { authorizeNode } from "./nodes";
 import { signApiPayload } from "./signing";
-import { activeBundle, foreignRelayAddresses, nodeClusters, nodeDocument } from "./store";
+import { activeBundle, audit, foreignClusterMember, foreignRelayAddresses, nodeById, nodeClusters, nodeDocument } from "./store";
 import { filesOrigin, now } from "./validation";
 
 interface CapsuleBundle {
@@ -49,6 +51,36 @@ export async function issueDomesticCapsule(env: Env, node: NodeRow): Promise<str
     l: relays.map(relayEndpoint),
   });
   return base62Capsule(JSON.stringify({ p: base64Url(new TextEncoder().encode(payload)), s: await signApiPayload(env, payload) }));
+}
+
+export async function handleRelayDomesticCapsule(
+  request: Request,
+  env: Env,
+  relayNodeId: string,
+  clusterId: string,
+  domesticNodeId: string,
+): Promise<Response> {
+  if (request.method !== "POST") return error("method not allowed", 405);
+  if (!await authorizeNode(request, env, relayNodeId)) return error("unauthorized", 401);
+  if (!await foreignClusterMember(env, relayNodeId, clusterId)) return error("forbidden", 403);
+
+  const domestic = await nodeById(env, domesticNodeId);
+  if (!domestic || domestic.node_class !== "domestic" || domestic.status === "revoked") {
+    return error("domestic node is unavailable", 404);
+  }
+  const clusters = await nodeClusters(env, domestic.id);
+  if (clusters.length !== 1 || clusters[0].id !== clusterId) return error("forbidden", 403);
+
+  try {
+    const capsule = await issueDomesticCapsule(env, domestic);
+    await audit(env, "domestic.capsule_issued_by_relay", { domestic_node_id: domestic.id }, {
+      nodeId: relayNodeId,
+      clusterId,
+    });
+    return json({ capsule });
+  } catch (reason) {
+    return error(reason instanceof Error ? reason.message : "cannot issue domestic capsule", 503);
+  }
 }
 
 function requireDomesticBundles(env: Env, amd64: BundleRow, arm64: BundleRow): void {
