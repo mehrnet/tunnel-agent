@@ -185,11 +185,14 @@ contracts, and exits. The existing `Restart=always` service then starts the
 new `current/bin/tunnel-agent`. A failed seed fetch or digest check leaves the
 existing release and contracts untouched.
 
-Agent lane definitions currently validate and select management topology, but
-they do not yet start HPNSSH/WSTunnel management transports. The seed protocol
-is ready for that next increment: wire an established selected lane to the
-foreign `seed-serve` loopback port, then point `bundle_seed.source` at its
-local mapped endpoint.
+The first agent lane is a live, HPNSSH-only management reverse forward. A
+foreign node pins the domestic lane host key, fetches its cluster control key
+only through its authenticated API credential, and maps the domestic loopback
+seed endpoint to a foreign loopback server. That server carries only verified
+release blobs and API-signed domestic relay documents. The domestic node stays
+API-free, verifies every received signature and revision locally, then applies
+the new manifest or atomically self-updates. Customer listeners, SOCKS workers,
+and existing data-plane tunnels are not reused.
 
 ## Development
 

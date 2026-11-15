@@ -37,18 +37,27 @@ struct ServeState {
     blobs: HashMap<String, PathBuf>,
 }
 
-pub(crate) fn serve(root: &Path, listener: SocketAddr, document_path: &Path) -> Result<(), String> {
+pub(crate) fn serve(
+    root: &Path,
+    listener: SocketAddr,
+    document_path: &Path,
+    relay_directory: Option<&Path>,
+) -> Result<(), String> {
     if !listener.ip().is_loopback() {
         return Err("seed listener must bind to a loopback address".to_owned());
     }
-    let state = load_serve_state(root, document_path)?;
+    let mut state = load_serve_state(root, document_path)?;
     let socket = TcpListener::bind(listener)
         .map_err(|error| format!("cannot bind seed listener {listener}: {error}"))?;
     eprintln!("serving bundle seed on {listener}");
     for connection in socket.incoming() {
         match connection {
             Ok(stream) => {
-                if let Err(error) = serve_connection(stream, &state) {
+                if fs::read(document_path).ok().as_deref() != Some(&state.document) {
+                    state = load_serve_state(root, document_path)?;
+                    eprintln!("reloaded bundle seed release document");
+                }
+                if let Err(error) = serve_connection(stream, &state, relay_directory) {
                     eprintln!("seed request failed: {error}");
                 }
             }
@@ -56,6 +65,15 @@ pub(crate) fn serve(root: &Path, listener: SocketAddr, document_path: &Path) -> 
         }
     }
     Ok(())
+}
+
+pub(crate) fn fetch_relay_document(source: &str, node_id: &str) -> Result<String, String> {
+    if !valid_node_id(node_id) {
+        return Err("relay node id is invalid".to_owned());
+    }
+    let source = SeedSource::new(source)?;
+    let raw = source.get_bytes(&format!("/v1/relay/{node_id}"), MAX_DOCUMENT_BYTES)?;
+    String::from_utf8(raw).map_err(|_| "relay response is not UTF-8".to_owned())
 }
 
 pub(crate) fn apply(root: &Path, source: &str, activate: bool) -> Result<SeedResult, String> {
@@ -125,7 +143,11 @@ fn load_serve_state(root: &Path, document_path: &Path) -> Result<ServeState, Str
     })
 }
 
-fn serve_connection(stream: TcpStream, state: &ServeState) -> Result<(), String> {
+fn serve_connection(
+    stream: TcpStream,
+    state: &ServeState,
+    relay_directory: Option<&Path>,
+) -> Result<(), String> {
     let mut reader = BufReader::new(stream);
     let mut request = String::new();
     reader
@@ -140,7 +162,32 @@ fn serve_connection(stream: TcpStream, state: &ServeState) -> Result<(), String>
     match path {
         "/v1/release" => write_response(&mut stream, 200, "application/json", &state.document),
         "/v1/index" => write_response(&mut stream, 200, "application/json", &state.index),
+        value if value.starts_with("/v1/relay/") => {
+            serve_relay(&mut stream, value, relay_directory)
+        }
         _ => serve_blob(&mut stream, path, state),
+    }
+}
+
+fn serve_relay(
+    stream: &mut TcpStream,
+    path: &str,
+    relay_directory: Option<&Path>,
+) -> Result<(), String> {
+    let Some(node_id) = path
+        .strip_prefix("/v1/relay/")
+        .filter(|value| valid_node_id(value))
+    else {
+        return write_response(stream, 404, "text/plain", b"not found\n");
+    };
+    let Some(directory) = relay_directory else {
+        return write_response(stream, 404, "text/plain", b"not found\n");
+    };
+    match fs::read(directory.join(format!("{node_id}.json"))) {
+        Ok(document) if document.len() as u64 <= MAX_DOCUMENT_BYTES => {
+            write_response(stream, 200, "application/json", &document)
+        }
+        _ => write_response(stream, 404, "text/plain", b"not found\n"),
     }
 }
 
@@ -429,4 +476,11 @@ impl SeedSource {
             Err(format!("seed source returned HTTP {}", response.status()))
         }
     }
+}
+
+fn valid_node_id(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| {
+            (matches!(index, 8 | 13 | 18 | 23) && byte == b'-') || byte.is_ascii_hexdigit()
+        })
 }

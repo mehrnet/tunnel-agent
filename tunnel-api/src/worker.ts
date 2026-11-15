@@ -1,4 +1,5 @@
 import { handleBootstrap, handleBundleActivation, handleBundleRelease } from "./bundles";
+import { handleControlKey } from "./control";
 import { error, json } from "./http";
 import type { Env } from "./models";
 import { handleEnroll, handleNodeDocument } from "./nodes";
@@ -16,6 +17,8 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext): Pro
   if (document) return handleNodeDocument(request, env, document[1]);
   const bundleRelease = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/bundle-release$/);
   if (bundleRelease) return handleBundleRelease(request, env, bundleRelease[1]);
+  const controlKey = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/clusters\/([0-9a-f-]{36})\/control-key$/);
+  if (controlKey) return handleControlKey(request, env, controlKey[1], controlKey[2]);
   const relayDocuments = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/relay-documents$/);
   if (relayDocuments) return handleRelayDocuments(request, env, relayDocuments[1]);
   return error("not found", 404);

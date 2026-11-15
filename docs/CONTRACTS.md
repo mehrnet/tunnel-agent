@@ -41,7 +41,8 @@ or peer seeding before it could apply an update.
 `agent` is the only top-level object for tunnel-agent runtime behavior. It is
 strictly separate from `tunnels`: a management lane never exposes customer
 traffic, SOCKS, or a public listener. Version 3 manifests may declare a small,
-ordered set of future control lanes:
+ordered set of control lanes. The first implemented transport is an HPNSSH
+foreign-to-domestic reverse forward:
 
 ```json
 {
@@ -50,15 +51,26 @@ ordered set of future control lanes:
     "max_active_lanes": 2,
     "lanes": [{
       "id": "8NdSLH0jy7Af3Gu9h",
-      "transport": "wstunnel",
+      "transport": "hpnssh",
       "direction": "foreign_to_domestic",
+      "role": "client",
       "priority": 10,
       "peer": {
         "node_id": "d6caf939-b959-4471-918f-2e05ca282a37",
         "host": "de-1.example.net",
         "port": 4443
       },
-      "local_listener": {"bind": "127.0.0.1", "port": 42022}
+      "listener": {"bind": "127.0.0.1", "port": 42022},
+      "hpnssh": {
+        "cluster_id": "4cd57b8f-8f97-4f80-8791-90bba10190d0",
+        "client": {
+          "user": "root",
+          "identity_file": "/opt/tunnel-agent/state/control-keys/cluster.pem",
+          "known_hosts_file": "/opt/tunnel-agent/state/known-hosts/domestic",
+          "known_host": "[ir-6.example.net]:42001 ssh-ed25519 BASE64HOSTKEY",
+          "target": {"host": "127.0.0.1", "port": 42022}
+        }
+      }
     }]
   }
 }
@@ -74,11 +86,12 @@ eligible; after priority ordering, the first `max_active_lanes` are selected
 and the rest remain validated standbys. This makes failover safe without
 having to issue a new manifest during an outage.
 
-This first contract increment only validates and exposes the intended lane
-plan. It deliberately does **not** start a management transport or claim a
-live connection. The next increment will render role-specific HPNSSH and
-WSTunnel control contracts, install the cluster trust material, and select the
-highest-priority healthy lane without mixing it with customer traffic.
+The selected `hpnssh` lane starts two foreign processes: a loopback-only seed
+server and the pinned HPNSSH client. Its domestic peer starts only the
+restricted `hpnsshd`. The agent rejects a management listener collision with a
+typed customer tunnel before either process is started. `wstunnel`, `rathole`,
+and `trusttunnel` remain declared but unavailable for agent lanes until their
+role-specific management contracts have equivalent isolation and verification.
 
 ## Peer-Seeded Bundles
 
@@ -92,8 +105,9 @@ must never bind a public address.
 2. Publication registers the archive SHA-256 and index SHA-256. Only an
    enrolled foreign node can request the API-signed release document.
 3. `seed-serve` verifies that its current release matches the signed document,
-   then exposes `/v1/release`, `/v1/index`, and `/v1/blob/<sha256>` on a
-   loopback listener. It never serves arbitrary paths.
+   then exposes `/v1/release`, `/v1/index`, `/v1/blob/<sha256>`, and a signed
+   per-domestic-node `/v1/relay/<node-id>` document on a loopback listener. It
+   never serves arbitrary paths.
 4. A domestic node accepts only a signature made by the compiled API public
    key. It checks the index hash, release version, architecture, every blob's
    size and SHA-256, and every staged file before promotion.
@@ -101,8 +115,8 @@ must never bind a public address.
    from the cache or the current indexed bundle, so a peer transfer contains
    only new content.
 
-The optional domestic `agent.bundle_seed` setting automates polling after an
-agent lane maps the foreign seed service to the declared local URL:
+The domestic `agent.bundle_seed` setting automates polling after an agent lane
+maps the foreign seed service to the declared local URL:
 
 ```json
 {

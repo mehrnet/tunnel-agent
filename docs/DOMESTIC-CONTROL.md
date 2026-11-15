@@ -42,19 +42,30 @@ declarative manifests with no inline secret values. The future document
 compiler must reject inline secrets for relayed domestic documents. Per-node
 sealed envelopes are required before the control plane carries secret material.
 
-## Next transport increment
+## Management lane
 
-This bootstrap does not yet start a control tunnel. The next increment adds a
-dedicated relay-only contract over a separate HPNSSH or WSTunnel listener:
+The first live management transport is a dedicated HPNSSH reverse forward. It
+does not reuse legacy HPN listeners, SOCKS ports, WSTunnel endpoints, or any
+customer tunnel process.
 
-1. Foreign relays poll `/v1/nodes/<id>/relay-documents` and retain signed
-   state envelopes for their cluster's domestic members.
-2. They fan envelopes out to connected domestic nodes over selected management
-   lanes.
-3. Domestic nodes verify the API signature and monotonic revision before an
-   apply, then acknowledge the revision over the control channel.
-4. Customer listeners and customer tunnel lanes never carry this traffic.
+1. A domestic `agent` lane starts a dedicated `hpnsshd` listener, currently on
+   an explicitly declared high port such as `42001`. It accepts only the
+   cluster control key, disables shells/passwords/PTYs, and permits remote TCP
+   forwarding only.
+2. A selected foreign lane obtains the encrypted cluster private key through
+   its authenticated API credential, pins the domestic listener host key, and
+   opens an HPNSSH `-R` forward. The domestic loopback seed port, for example
+   `127.0.0.1:42022`, then reaches the foreign loopback seed service.
+3. The foreign seed service exposes only signed release metadata, verified
+   indexed bundle blobs, and the signed relay document for the requesting
+   domestic node. It is never public.
+4. The domestic offline agent polls `127.0.0.1:42022` only. It verifies the
+   API signature, node binding, and monotonic revision before applying a
+   manifest. It verifies every bundle digest before atomically activating a
+   self-update and restarting itself.
 
-The relay remains a cache and transport, never a configuration authority. It
-cannot manufacture a desired-state revision because domestic nodes verify the
-API signature locally.
+The foreign relay remains a cache and transport, never a configuration
+authority. It cannot manufacture a desired-state revision because domestic
+nodes verify the API signature locally. The current cluster-wide SSH key is a
+bootstrap compatibility boundary; replace it with rotated per-foreign-node
+keys before allowing untrusted foreign membership.

@@ -103,6 +103,13 @@ export async function foreignRelayAddresses(env: Env, clusterId: string): Promis
   return rows.results;
 }
 
+export async function foreignClusterMember(env: Env, nodeId: string, clusterId: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    "SELECT 1 AS present FROM cluster_nodes WHERE node_id = ? AND cluster_id = ? AND role = 'foreign'",
+  ).bind(nodeId, clusterId).first<{ present: number }>();
+  return row?.present === 1;
+}
+
 export async function relayDocumentsForForeignNode(env: Env, relayNodeId: string): Promise<RelayDocumentRow[]> {
   const rows = await env.DB.prepare(
     `SELECT c.id AS cluster_id, d.node_id, d.revision, d.manifest_json, d.updated_at

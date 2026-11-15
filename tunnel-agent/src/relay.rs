@@ -37,6 +37,7 @@ pub(crate) struct VerifiedDocument {
     pub(crate) cluster_id: String,
     pub(crate) node_id: String,
     pub(crate) revision: u64,
+    pub(crate) manifest_json: String,
 }
 
 pub(crate) fn verify_for_local_node(
@@ -93,6 +94,7 @@ fn verify_with_key(
         cluster_id: payload.c,
         node_id: payload.n,
         revision: payload.i,
+        manifest_json,
     })
 }
 

@@ -222,53 +222,73 @@ fn bundled_manifest_resolves_preinstalled_transport_binaries() {
 }
 
 #[test]
-fn compiles_an_agent_lane_plan_without_starting_a_customer_contract() {
+fn compiles_an_agent_lane_plan_with_control_processes_only() {
     let raw = r#"{
       "version": 3,
+      "node_scope": "foreign",
       "bundle": {"root": "/opt/tunnel-agent/current"},
       "agent": {
         "lanes": [{
           "id": "8NdSLH0jy7Af3Gu9h",
-          "transport": "wstunnel",
+          "transport": "hpnssh",
           "direction": "foreign_to_domestic",
+          "role": "client",
           "priority": 10,
           "peer": {
             "node_id": "d6caf939-b959-4471-918f-2e05ca282a37",
-            "host": "de-1.example.net",
-            "port": 4443
+            "host": "ir-6.example.net",
+            "port": 42001
           },
-          "local_listener": {"bind": "127.0.0.1", "port": 14444}
+          "listener": {"bind": "127.0.0.1", "port": 14444},
+          "hpnssh": {
+            "cluster_id": "4cd57b8f-8f97-4f80-8791-90bba10190d0",
+            "client": {
+              "user": "root",
+              "identity_file": "/state/control.pem",
+              "known_hosts_file": "/state/known_hosts",
+              "known_host": "[ir-6.example.net]:42001 ssh-ed25519 AAAA",
+              "target": {"host": "127.0.0.1", "port": 42022}
+            }
+          }
         }]
       }
     }"#;
     let config: Config = serde_json::from_str(raw).expect("valid agent schema");
     let plan = compile(&config, Path::new("/unused-state")).expect("valid agent plan");
-    assert!(plan.processes.is_empty());
+    assert_eq!(plan.processes.len(), 2);
     assert_eq!(plan.agent_lanes[0].id, "8NdSLH0jy7Af3Gu9h");
     assert!(plan.agent_lanes[0].selected);
-    assert_eq!(
-        plan.listeners[0].owner,
-        "agent lane 8NdSLH0jy7Af3Gu9h (selected)"
-    );
+    assert_eq!(plan.listeners[0].owner, "agent seed 8NdSLH0jy7Af3Gu9h");
 }
 
 #[test]
 fn rejects_agent_lane_listener_collision_with_a_local_socks_worker() {
     let raw = r#"{
       "version": 3,
+      "node_scope": "domestic",
       "bundle": {"root": "/opt/tunnel-agent/current"},
       "agent": {
         "lanes": [{
           "id": "8NdSLH0jy7Af3Gu9h",
-          "transport": "wstunnel",
+          "transport": "hpnssh",
           "direction": "foreign_to_domestic",
+          "role": "server",
           "priority": 10,
           "peer": {
             "node_id": "d6caf939-b959-4471-918f-2e05ca282a37",
             "host": "de-1.example.net",
-            "port": 4443
+            "port": 42001
           },
-          "local_listener": {"bind": "127.0.0.1", "port": 14444}
+          "listener": {"bind": "127.0.0.1", "port": 14444},
+          "hpnssh": {
+            "cluster_id": "4cd57b8f-8f97-4f80-8791-90bba10190d0",
+            "server": {
+              "bind": "0.0.0.0",
+              "port": 42001,
+              "host_key_file": "/etc/tunnel-agent/host_key",
+              "authorized_keys_file": "/etc/tunnel-agent/authorized_keys"
+            }
+          }
         }]
       },
       "tunnels": [{

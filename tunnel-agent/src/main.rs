@@ -1,4 +1,6 @@
 mod agent;
+mod agent_control;
+mod agent_lane;
 mod agent_spec;
 mod capsule;
 mod manifest;
@@ -120,6 +122,9 @@ enum CommandKind {
         listen: std::net::SocketAddr,
         #[arg(long, default_value = "/opt/tunnel-agent/state/release-document.json")]
         release_document: PathBuf,
+        /// Directory containing API-signed domestic relay envelopes.
+        #[arg(long)]
+        relay_directory: Option<PathBuf>,
     },
     /// Fetch a verified bundle from a loopback agent lane and stage or activate it.
     SeedApply {
@@ -150,10 +155,11 @@ fn print_plan(plan: &CompiledPlan) -> Result<(), String> {
             "selected": lane.selected,
             "transport": lane.transport.as_str(),
             "direction": lane.direction.as_str(),
+            "role": format!("{:?}", lane.role).to_lowercase(),
             "priority": lane.priority,
             "peer_node_id": lane.peer.node_id,
             "peer": format!("{}:{}", lane.peer.host, lane.peer.port),
-            "local_listener": format!("{}:{}", lane.local_listener.bind, lane.local_listener.port),
+            "listener": format!("{}:{}", lane.listener.bind, lane.listener.port),
         })).collect::<Vec<_>>(),
     });
     println!(
@@ -223,7 +229,8 @@ async fn execute(command: CommandKind) -> ExitCode {
             root,
             listen,
             release_document,
-        } => seed::serve(&root, listen, &release_document).map_or_else(
+            relay_directory,
+        } => seed::serve(&root, listen, &release_document, relay_directory.as_deref()).map_or_else(
             |error| failure("seed server cannot start", error),
             |_| ExitCode::SUCCESS,
         ),

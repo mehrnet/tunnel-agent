@@ -11,7 +11,10 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tar::Archive;
 
-use crate::agent_spec::{self, AgentLanePlan, AgentSpec};
+use crate::{
+    agent_lane,
+    agent_spec::{self, AgentLanePlan, AgentSpec},
+};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -109,7 +112,7 @@ pub struct ProcessSpec {
     pub restart: RestartPolicy,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RestartPolicy {
     #[serde(default = "default_initial_backoff_ms")]
@@ -506,6 +509,9 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
                     .ok_or_else(|| "manifest version 3 requires bundle.root".to_owned())?,
             )?;
             agent_spec::validate(&config.agent)?;
+            for lane in config.agent.lanes.iter().filter(|lane| lane.enabled) {
+                agent_lane::validate(lane, config.node_scope)?;
+            }
             if config.agent.bundle_seed.is_some() && config.node_scope != NodeScope::Domestic {
                 return Err("agent.bundle_seed is supported only on domestic nodes".to_owned());
             }
@@ -947,18 +953,34 @@ pub fn compile(config: &Config, state_dir: &Path) -> Result<CompiledPlan, String
     validate_config(config)?;
     let artifact_paths = resolve_artifact_paths(config, state_dir)?;
     let TunnelCompilation {
-        processes,
-        generated_files,
+        mut processes,
+        mut generated_files,
         mut listeners,
     } = compile_tunnels(config, state_dir, &artifact_paths)?;
-    let agent_lanes = agent_spec::compile_lanes(&config.agent);
-
-    for lane in &agent_lanes {
-        listeners.push(ListenerClaim {
-            owner: format!("agent lane {} ({})", lane.id, lane_state(lane.selected)),
-            bind: lane.local_listener.bind.clone(),
-            port: lane.local_listener.port,
-        });
+    let selected = agent_spec::selected_lanes(&config.agent);
+    let selected_ids: HashSet<_> = selected
+        .iter()
+        .filter(|lane| lane.selected)
+        .map(|lane| lane.id.as_str())
+        .collect();
+    let mut agent_lanes = Vec::new();
+    for lane in config.agent.lanes.iter().filter(|lane| lane.enabled) {
+        let bundle_root = config
+            .bundle
+            .as_ref()
+            .ok_or_else(|| "agent lanes require a bundled manifest".to_owned())?
+            .root
+            .as_path();
+        let (plan, lane_processes, lane_files, lane_listeners) = agent_lane::compile(
+            lane,
+            selected_ids.contains(lane.id.as_str()),
+            bundle_root,
+            state_dir,
+        );
+        processes.extend(lane_processes);
+        generated_files.extend(lane_files);
+        listeners.extend(lane_listeners);
+        agent_lanes.push(plan);
     }
 
     validate_processes(&processes)?;
@@ -969,10 +991,6 @@ pub fn compile(config: &Config, state_dir: &Path) -> Result<CompiledPlan, String
         listeners,
         agent_lanes,
     })
-}
-
-fn lane_state(selected: bool) -> &'static str {
-    if selected { "selected" } else { "standby" }
 }
 
 fn compile_tunnels(
