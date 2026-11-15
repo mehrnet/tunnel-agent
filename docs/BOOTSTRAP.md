@@ -161,6 +161,11 @@ Domestic bundle mirrors are optional HTTPS sources registered by an operator.
 The installer always verifies each archive against the SHA-256 returned by the
 API and falls back to the Cloudflare files origin when a domestic mirror fails.
 
+`http://dl.mehr-mir.ir/...` is the sole HTTP exception, and it may carry only
+immutable bundle manifests and chunks. The installer validates every chunk and
+the reconstructed archive against the signed capsule's SHA-256. Bootstrap
+scripts remain HTTPS-only and continue to come from `tunnel-files`.
+
 A mirror may expose a complete archive or a chunk manifest. A v1 chunk
 manifest uses filenames relative to its own URL. A v2 manifest carries direct
 HTTPS URLs for each part, which supports providers that only expose opaque

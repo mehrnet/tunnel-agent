@@ -89,9 +89,12 @@ safe_chunk_name() {
   esac
 }
 
-safe_https_url() {
+safe_bundle_url() {
   case "$1" in
     https://*) ;;
+    # This domestic mirror is HTTP-only. Its manifest and every downloaded
+    # chunk remain bound to the signed capsule's archive SHA-256.
+    http://dl.mehr-mir.ir/*) ;;
     *) return 1 ;;
   esac
   case "$1" in
@@ -194,7 +197,7 @@ download_chunked_bundle() {
   part_count=0
   seen_names="$tmpdir/chunk-names"
 
-  safe_https_url "$source_base" || { echo "chunked bundle has an unsafe base URL" >&2; return 1; }
+  safe_bundle_url "$source_base" || { echo "chunked bundle has an unsafe base URL" >&2; return 1; }
 
   : > "$destination"
   : > "$seen_names"
@@ -229,7 +232,7 @@ download_chunked_bundle() {
         case "$part_source" in *[[:space:]]*) echo "invalid chunk source" >&2; return 1;; esac
         if [ "${#part_sha}" -ne 64 ] || ! printf '%s' "$part_sha" | grep -Eq '^[0-9a-f]{64}$' || \
            { [ "$manifest_format" = 1 ] && ! safe_chunk_name "$part_source"; } || \
-           { [ "$manifest_format" = 2 ] && ! safe_https_url "$part_source"; }; then
+           { [ "$manifest_format" = 2 ] && ! safe_bundle_url "$part_source"; }; then
           echo "invalid chunk manifest part" >&2
           return 1
         fi
@@ -312,10 +315,7 @@ urls_file="$tmpdir/bundle-urls"
 printf '%s\n' "$bundle_urls" | tr ',' '\n' > "$urls_file"
 while IFS= read -r url; do
   [ -n "$url" ] || continue
-  case "$url" in
-    https://*) ;;
-    *) echo "bootstrap returned an unsafe bundle URL" >&2; exit 1 ;;
-  esac
+  safe_bundle_url "$url" || { echo "bootstrap returned an unsafe bundle URL" >&2; exit 1; }
   source_file="$tmpdir/bundle-source"
   rm -f "$package" "$source_file"
   if ! fetch_to "$url" "$source_file"; then

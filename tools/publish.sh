@@ -47,13 +47,13 @@ fi
 
 if [ -n "$domestic_base" ]; then
   case "$domestic_base" in
-    https://*) ;;
+    https://*|http://dl.mehr-mir.ir/*) ;;
     *)
-      echo "DOMESTIC_BUNDLE_BASE_URL must be an HTTPS base URL" >&2
+      echo "DOMESTIC_BUNDLE_BASE_URL must use HTTPS or the approved HTTP mirror" >&2
       exit 2
       ;;
   esac
-  if printf '%s' "$domestic_base" | grep -Eq '[[:space:]"\\,]'; then
+  if printf '%s' "$domestic_base" | grep -Eq '[[:space:]"\\,?#]'; then
     echo "DOMESTIC_BUNDLE_BASE_URL contains unsafe characters" >&2
     exit 2
   fi
@@ -72,7 +72,7 @@ if [ -n "$domestic_amd64_url" ] || [ -n "$domestic_arm64_url" ]; then
     exit 2
   fi
   for domestic_url in "$domestic_amd64_url" "$domestic_arm64_url"; do
-    case "$domestic_url" in https://*) ;; *) echo "domestic bundle URL must use HTTPS" >&2; exit 2;; esac
+    case "$domestic_url" in https://*|http://dl.mehr-mir.ir/*) ;; *) echo "domestic bundle URL must use HTTPS or the approved HTTP mirror" >&2; exit 2;; esac
     if printf '%s' "$domestic_url" | grep -Eq '[[:space:]"\\,?#]'; then
       echo "domestic bundle URL contains unsafe characters" >&2
       exit 2

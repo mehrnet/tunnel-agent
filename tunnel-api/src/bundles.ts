@@ -18,10 +18,11 @@ function bundlePublicPath(version: string, architecture: Architecture): string {
   return `${bundleArchivePath(version, architecture)}.parts`;
 }
 
-function validDomesticBundleUrl(value: string): boolean {
+function validBundleSourceUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash &&
+    const trustedDomesticHttp = url.protocol === "http:" && url.hostname === "dl.mehr-mir.ir" && !url.port;
+    return (url.protocol === "https:" || trustedDomesticHttp) && !url.username && !url.password && !url.search && !url.hash &&
       !/[\s,]/.test(value);
   } catch {
     return false;
@@ -46,7 +47,7 @@ function parseBundleEntry(
   const expectedManifestPath = bundlePublicPath(version, architecture);
   if (publicUrl !== expectedManifestPath) return null;
   if (domesticUrl !== null && (typeof domesticUrl !== "string" ||
-    !validDomesticBundleUrl(domesticUrl))) {
+    !validBundleSourceUrl(domesticUrl))) {
     return null;
   }
   return { architecture, sha256, inventory_sha256: inventorySha256, public_url: publicUrl, domestic_url: domesticUrl };
@@ -70,7 +71,7 @@ function bootstrapEnv(bundle: BundleRow, nodeClass: NodeClass, origin: string): 
   if (!HEX_64.test(bundle.sha256)) throw new Error("bundle registry has invalid SHA-256");
   const publicUrl = new URL(bundle.public_url, origin).toString();
   const sources = nodeClass === "domestic" && bundle.domestic_url ? [bundle.domestic_url, publicUrl] : [publicUrl];
-  if (sources.some((source) => !source.startsWith("https://") || /[\s,]/.test(source))) {
+  if (sources.some((source) => !validBundleSourceUrl(source))) {
     throw new Error("bundle registry has invalid source URL");
   }
   if (!BUNDLE_VERSION.test(bundle.version)) throw new Error("bundle registry has invalid version");
