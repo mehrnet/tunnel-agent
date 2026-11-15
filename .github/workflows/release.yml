@@ -88,6 +88,11 @@ jobs:
             .
           test -x hpn-output/hpnssh/bin/hpnssh
           test -x hpn-output/hpnssh/sbin/hpnsshd
+          if strings hpn-output/hpnssh/sbin/hpnsshd | grep --quiet '/out/hpnssh'; then
+            echo "HPN server contains its build-time prefix" >&2
+            exit 1
+          fi
+          strings hpn-output/hpnssh/sbin/hpnsshd | grep --quiet '/opt/tunnel-agent/current/hpnssh/libexec/hpnsshd-session'
         env:
           DOCKER_PLATFORM: ${{ matrix.docker_platform }}
       - name: Assemble immutable bundle

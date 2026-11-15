@@ -414,6 +414,11 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now "${SERVICE_NAME}.service"
+systemctl enable "${SERVICE_NAME}.service"
+if systemctl is-active --quiet "${SERVICE_NAME}.service"; then
+  systemctl restart "${SERVICE_NAME}.service"
+else
+  systemctl start "${SERVICE_NAME}.service"
+fi
 "$ROOT/current/bin/tunnel-agent" --version
 echo "installed tunnel-agent bundle ${bundle_version} for ${architecture}; node ${node_id} is enrolled"

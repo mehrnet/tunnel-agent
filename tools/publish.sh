@@ -61,7 +61,11 @@ if [ -n "$domestic_bases" ]; then
     exit 2
     ;;
   esac
-  old_ifs=$IFS; IFS=,; set -- $domestic_bases; IFS=$old_ifs
+  old_ifs=$IFS
+  IFS=,
+  # shellcheck disable=SC2086 # Intentional comma-delimited split after validation.
+  set -- $domestic_bases
+  IFS=$old_ifs
   if [ "$#" -gt 4 ]; then
     echo "at most four domestic bundle mirrors are supported" >&2
     exit 2
@@ -123,7 +127,11 @@ domestic_urls_json() {
       arm64) urls=$domestic_arm64_url ;;
     esac
   elif [ -n "$domestic_bases" ]; then
-    old_ifs=$IFS; IFS=,; set -- $domestic_bases; IFS=$old_ifs
+    old_ifs=$IFS
+    IFS=,
+    # shellcheck disable=SC2086 # Intentional comma-delimited split after validation.
+    set -- $domestic_bases
+    IFS=$old_ifs
     for domestic_base in "$@"; do
       case "$domestic_format" in
         manifest) domestic_url="${domestic_base%/}/$archive.parts" ;;
@@ -134,7 +142,11 @@ domestic_urls_json() {
   fi
 
   json=''
-  old_ifs=$IFS; IFS=,; set -- $urls; IFS=$old_ifs
+  old_ifs=$IFS
+  IFS=,
+  # shellcheck disable=SC2086 # URLs were constructed from validated mirrors above.
+  set -- $urls
+  IFS=$old_ifs
   for domestic_url in "$@"; do
     [ -n "$domestic_url" ] || continue
     if [ -n "$json" ]; then json="$json,"; fi
