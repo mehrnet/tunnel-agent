@@ -84,10 +84,16 @@ pub(crate) fn refresh_cache(
     if !has_active_client(config) {
         return Ok(());
     }
-    release::cache_release_document(
+    let bundle_root = &config
+        .bundle
+        .as_ref()
+        .ok_or_else(|| "foreign agent manifest has no bundle root".to_owned())?
+        .root;
+    let _ = release::cache_seed_release_document(
         api_url,
         node_id,
         node_token,
+        bundle_root,
         &state_dir.join("release-document.json"),
     )?;
     refresh_relay_documents(

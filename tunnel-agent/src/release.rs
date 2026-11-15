@@ -71,6 +71,42 @@ pub(crate) fn cache_release_document(
     node_token: &str,
     output: &Path,
 ) -> Result<(), String> {
+    let document = fetch_release_document(api_url, node_id, node_token)?;
+    write_atomic(output, document.as_bytes())
+}
+
+/// Cache a signed release only when the active immutable bundle can serve it.
+///
+/// A foreign seed must never advertise an inventory it has not installed: doing
+/// so would make its seed server fail closed and strand domestic peers.
+pub(crate) fn cache_seed_release_document(
+    api_url: &str,
+    node_id: &str,
+    node_token: &str,
+    bundle_root: &Path,
+    output: &Path,
+) -> Result<bool, String> {
+    let raw_document = fetch_release_document(api_url, node_id, node_token)?;
+    let architecture = local_architecture()?;
+    let document = verify_release_document(&raw_document, &architecture)?;
+    let raw_index = fs::read(bundle_root.join(INDEX_NAME)).map_err(|error| {
+        format!(
+            "cannot read active bundle inventory {}: {error}",
+            bundle_root.join(INDEX_NAME).display()
+        )
+    })?;
+    if !index_matches_release(&raw_index, &document)? {
+        return Ok(false);
+    }
+    write_atomic(output, raw_document.as_bytes())?;
+    Ok(true)
+}
+
+fn fetch_release_document(
+    api_url: &str,
+    node_id: &str,
+    node_token: &str,
+) -> Result<String, String> {
     let architecture = local_architecture()?;
     validate_credentials(node_id, node_token)?;
     let endpoint = format!(
@@ -100,7 +136,16 @@ pub(crate) fn cache_release_document(
     let document = serde_json::from_str::<ReleaseResponse>(&body)
         .map_err(|error| format!("cannot parse signed release response: {error}"))?;
     verify_release_document(&document.envelope, &architecture)?;
-    write_atomic(output, document.envelope.as_bytes())
+    Ok(document.envelope)
+}
+
+fn index_matches_release(raw_index: &[u8], release: &ReleaseDocument) -> Result<bool, String> {
+    if sha256_bytes(raw_index) != release.inventory_sha256 {
+        return Ok(false);
+    }
+    let index = parse_index(as_utf8(raw_index, "active bundle inventory")?)?;
+    ensure_index_matches_document(&index, release)?;
+    Ok(true)
 }
 
 pub(crate) fn parse_index(raw: &str) -> Result<BundleIndex, String> {
@@ -334,5 +379,23 @@ mod tests {
             verify_release_document_with_key(&envelope.to_string(), "amd64", &key.verifying_key())
                 .expect("release document");
         assert_eq!(release.version, "v1");
+    }
+
+    #[test]
+    fn accepts_only_an_inventory_matching_the_signed_release() {
+        let index = r#"{"format":1,"version":"v1","architecture":"amd64","files":[{"path":"bin/agent","sha256":"0000000000000000000000000000000000000000000000000000000000000000","bytes":1,"mode":493}]}"#;
+        let release = ReleaseDocument {
+            architecture: "amd64".to_owned(),
+            version: "v1".to_owned(),
+            inventory_sha256: sha256_bytes(index.as_bytes()),
+        };
+        assert!(index_matches_release(index.as_bytes(), &release).expect("matching inventory"));
+
+        let different = ReleaseDocument {
+            inventory_sha256: "1111111111111111111111111111111111111111111111111111111111111111"
+                .to_owned(),
+            ..release
+        };
+        assert!(!index_matches_release(index.as_bytes(), &different).expect("different inventory"));
     }
 }
