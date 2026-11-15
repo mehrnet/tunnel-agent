@@ -75,8 +75,8 @@ BUNDLE_VERSION=vX.Y.Z \
 BUNDLE_SOURCE_DIR=/path/to/downloaded-release \
 BUNDLE_PUBLISH_TOKEN=... \
 DOMESTIC_BUNDLE_BASE_URL=http://dl.mehr-mir.ir/bundles/vX.Y.Z \
-DOMESTIC_BUNDLE_EXTRA_BASE_URLS=https://mehrnat.ir/bundles/vX.Y.Z \
-DOMESTIC_BUNDLE_FORMAT=archive \
+DOMESTIC_BUNDLE_EXTRA_BASE_URLS=https://mehrnat.ir/bundles/vX.Y.Z,https://mahdi-m.ir/bundles/vX.Y.Z \
+DOMESTIC_BUNDLE_FORMAT=manifest \
 ./tools/publish.sh
 ```
 
@@ -86,10 +86,13 @@ endpoint only accepts the two expected architecture manifest paths for one
 version and switches their D1 rows in one atomic batch; it is not a generic
 database or manifest API.
 
-The domestic base URL is optional. When specified, it is returned only to
-domestic nodes, before the global static-asset URL as a checksum-verified
-fallback. `DOMESTIC_BUNDLE_FORMAT` defaults to `manifest`; use `archive` when
-the Iranian mirror serves the full immutable release archive.
+Domestic mirror URLs are optional and are returned only to domestic nodes. The
+installer tries them in the declared order, validates every chunk and the
+reconstructed archive SHA-256, then falls back to the global static-asset URL.
+Set `DOMESTIC_BUNDLE_BASE_URL` for the first mirror and provide up to three
+more comma-separated HTTPS origins in `DOMESTIC_BUNDLE_EXTRA_BASE_URLS`.
+`DOMESTIC_BUNDLE_FORMAT` defaults to `manifest`; use `archive` only when every
+mirror serves the full immutable release archive.
 
 ## 3. Enable the Telegram bot
 
