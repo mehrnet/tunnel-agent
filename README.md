@@ -62,6 +62,22 @@ mirror may serve either the same versioned manifest plus every referenced
 chunk, or one full versioned `.tar.gz` release archive. Both forms are checked
 against the final archive hash from the Worker.
 
+### Domestic Mirror Publishing
+
+`./sync-domestic-mirrors.sh` publishes the newest local
+`tunnel-files/static/bundles/v*` release and `install.sh` to every configured
+domestic mirror. It reads account credentials exclusively from the ignored,
+owner-only `private/domestic-mirror-accounts.csv` file, uses FTPS, uploads
+chunks before the manifest, and verifies each mirror's public installer and
+manifests. Use `--version vX.Y.Z` to pin a release, `--mirror ID` to repair one
+host, and `--dry-run` to inspect work without uploading. It never deletes
+immutable historical releases. The private CSV has an explicit
+`ftp_tls_insecure` field for the rare hosting provider that offers FTPS with a
+broken certificate; leave it `false` unless the provider mismatch is known and
+accepted. Set `sync_method` to `cpanel` where shared-host FTP data channels are
+unreliable; cPanel uploads stay on HTTPS. `--check-ftp` validates each account
+without writing files.
+
 ## Contracts
 
 | Contract | Role | Purpose |

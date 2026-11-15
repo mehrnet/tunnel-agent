@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const limits = [
+  { directory: ".", extension: ".sh", maxLines: 350, recursive: false },
   { directory: "tunnel-api/src", extension: ".ts", maxLines: 300 },
   { directory: "tunnel-agent/src", extension: ".rs", maxLines: 500 },
   { directory: "tools", extension: ".sh", maxLines: 350 },
@@ -17,10 +18,10 @@ const allowances = new Map([
 const typeScriptFunctionLimit = 90;
 const failures = [];
 
-function filesIn(directory, extension) {
+function filesIn(directory, extension, recursive = true) {
   return readdirSync(join(root, directory), { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) return filesIn(path, extension);
+    if (entry.isDirectory()) return recursive ? filesIn(path, extension, recursive) : [];
     return entry.isFile() && entry.name.endsWith(extension) ? [path] : [];
   });
 }
@@ -59,7 +60,7 @@ function normalized(body) {
 }
 
 for (const rule of limits) {
-  for (const path of filesIn(rule.directory, rule.extension)) {
+  for (const path of filesIn(rule.directory, rule.extension, rule.recursive)) {
     const maximum = allowances.get(path) ?? rule.maxLines;
     const lines = lineCount(path);
     if (lines > maximum) failures.push(`${path}: ${lines} lines exceeds ${maximum}`);
