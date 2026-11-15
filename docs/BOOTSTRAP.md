@@ -139,13 +139,23 @@ The installer:
 5. calls `/api/v1/enroll` once for a foreign node, or persists the verified
    domestic capsule without an API call; and
 6. starts `tunnel-agent agent` through `tunnel-agent.service`. Domestic
-   agents run with `--offline` until the relay synchronization protocol ships.
+   agents run with `--offline` permanently: their only control source is a
+   selected loopback-only management lane to an enrolled foreign relay.
 
-At this point the node has the runtime but no active lane. The owner-side
-desired-state compiler will write an enabled, typed WSTunnel (or HPNSSH)
-canary contract to both node documents. The agent applies only a higher,
-validated revision. Do not manually edit production listeners or stop legacy
-tunnel services before that compiler validates a unique canary port.
+For the first HPNSSH management-lane canary, issue a higher revision to both
+node documents. The domestic document declares a restricted `hpnsshd` listener
+and its loopback seed port; the foreign document declares the pinned HPNSSH
+client and its matching loopback seed server. Reserve distinct high ports such
+as `42001` for HPNSSH and `42022` for the mapped seed endpoint. Do not reuse a
+legacy data-plane HPN listener, SOCKS port, WSTunnel endpoint, or customer
+container port. A fresh `/install ir-6` capsule is required after changing a
+domestic manifest so the API-free node receives the signed initial lane.
+
+Once connected, the foreign relay polls the API for signed domestic envelopes
+and release metadata. The domestic node polls only `127.0.0.1:42022`, verifies
+every envelope and release digest, and applies only a higher validated
+revision. Do not manually edit production listeners or stop legacy tunnel
+services before this canary demonstrates a stable management connection.
 
 ## 5. Canary promotion criteria
 
