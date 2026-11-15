@@ -19,12 +19,17 @@ api_dir="$repository_dir/tunnel-api"
 files_dir="$repository_dir/tunnel-files/static"
 files_config="$repository_dir/tunnel-files/wrangler.jsonc"
 site_bundle_dir="$files_dir/bundles/$BUNDLE_VERSION"
-domestic_base=${DOMESTIC_BUNDLE_BASE_URL:-}
+domestic_bases=${DOMESTIC_BUNDLE_BASE_URL:-}
+domestic_extra_bases=${DOMESTIC_BUNDLE_EXTRA_BASE_URLS:-}
 domestic_format=${DOMESTIC_BUNDLE_FORMAT:-manifest}
 domestic_amd64_url=${DOMESTIC_BUNDLE_URL_AMD64:-}
 domestic_arm64_url=${DOMESTIC_BUNDLE_URL_ARM64:-}
 api_origin=${TUNNEL_API_ORIGIN:-https://tunnel-api.mehrnet.com}
 chunk_bytes=${BUNDLE_CHUNK_BYTES:-20971520}
+
+if [ -n "$domestic_extra_bases" ]; then
+  domestic_bases=${domestic_bases:+"$domestic_bases,"}$domestic_extra_bases
+fi
 
 case "$chunk_bytes" in
   ''|*[!0-9]*)
@@ -40,21 +45,35 @@ if [ "$chunk_bytes" -le 0 ] || [ "$chunk_bytes" -gt 25165824 ]; then
   exit 2
 fi
 
-if [ -n "$domestic_base" ] && { [ -n "$domestic_amd64_url" ] || [ -n "$domestic_arm64_url" ]; }; then
+if [ -n "$domestic_bases" ] && { [ -n "$domestic_amd64_url" ] || [ -n "$domestic_arm64_url" ]; }; then
   echo "set either DOMESTIC_BUNDLE_BASE_URL or architecture-specific DOMESTIC_BUNDLE_URL_* values" >&2
   exit 2
 fi
 
-if [ -n "$domestic_base" ]; then
-  case "$domestic_base" in
-    https://*|http://dl.mehr-mir.ir/*) ;;
-    *)
-      echo "DOMESTIC_BUNDLE_BASE_URL must use HTTPS or the approved HTTP mirror" >&2
-      exit 2
-      ;;
+valid_domestic_url() {
+  case "$1" in https://*|http://dl.mehr-mir.ir/*) ;; *) return 1;; esac
+  ! printf '%s' "$1" | grep -Eq '[[:space:]"\\,?#]'
+}
+
+if [ -n "$domestic_bases" ]; then
+  case "$domestic_bases" in ,*|*,,*|*,)
+    echo "DOMESTIC_BUNDLE_BASE_URLS contains an empty mirror" >&2
+    exit 2
+    ;;
   esac
-  if printf '%s' "$domestic_base" | grep -Eq '[[:space:]"\\,?#]'; then
-    echo "DOMESTIC_BUNDLE_BASE_URL contains unsafe characters" >&2
+  old_ifs=$IFS; IFS=,; set -- $domestic_bases; IFS=$old_ifs
+  if [ "$#" -gt 4 ]; then
+    echo "at most four domestic bundle mirrors are supported" >&2
+    exit 2
+  fi
+  for domestic_base in "$@"; do
+    if ! valid_domestic_url "$domestic_base"; then
+      echo "domestic bundle mirror must use HTTPS or the approved HTTP mirror" >&2
+      exit 2
+    fi
+  done
+  if [ -n "$domestic_bases" ] && [ -z "$domestic_format" ]; then
+    echo "DOMESTIC_BUNDLE_FORMAT is required when domestic mirrors are set" >&2
     exit 2
   fi
   case "$domestic_format" in
@@ -72,8 +91,7 @@ if [ -n "$domestic_amd64_url" ] || [ -n "$domestic_arm64_url" ]; then
     exit 2
   fi
   for domestic_url in "$domestic_amd64_url" "$domestic_arm64_url"; do
-    case "$domestic_url" in https://*|http://dl.mehr-mir.ir/*) ;; *) echo "domestic bundle URL must use HTTPS or the approved HTTP mirror" >&2; exit 2;; esac
-    if printf '%s' "$domestic_url" | grep -Eq '[[:space:]"\\,?#]'; then
+    if ! valid_domestic_url "$domestic_url"; then
       echo "domestic bundle URL contains unsafe characters" >&2
       exit 2
     fi
@@ -93,6 +111,36 @@ sha256_file() {
 
 file_bytes() {
   wc -c < "$1" | tr -d '[:space:]'
+}
+
+domestic_urls_json() {
+  architecture=$1
+  archive=$2
+  urls=''
+  if [ -n "$domestic_amd64_url" ]; then
+    case "$architecture" in
+      amd64) urls=$domestic_amd64_url ;;
+      arm64) urls=$domestic_arm64_url ;;
+    esac
+  elif [ -n "$domestic_bases" ]; then
+    old_ifs=$IFS; IFS=,; set -- $domestic_bases; IFS=$old_ifs
+    for domestic_base in "$@"; do
+      case "$domestic_format" in
+        manifest) domestic_url="${domestic_base%/}/$archive.parts" ;;
+        archive) domestic_url="${domestic_base%/}/$archive" ;;
+      esac
+      urls=${urls:+"$urls,"}$domestic_url
+    done
+  fi
+
+  json=''
+  old_ifs=$IFS; IFS=,; set -- $urls; IFS=$old_ifs
+  for domestic_url in "$@"; do
+    [ -n "$domestic_url" ] || continue
+    if [ -n "$json" ]; then json="$json,"; fi
+    json="$json\"$domestic_url\""
+  done
+  printf '[%s]' "$json"
 }
 
 stage_bundle() {
@@ -150,25 +198,12 @@ stage_bundle() {
   rm -f "$manifest_tmp"
 
   public_url="/bundles/$BUNDLE_VERSION/$archive.parts"
-  domestic_json=null
-  if [ -n "$domestic_amd64_url" ]; then
-    case "$architecture" in
-      amd64) domestic_url=$domestic_amd64_url ;;
-      arm64) domestic_url=$domestic_arm64_url ;;
-    esac
-    domestic_json="\"$domestic_url\""
-  elif [ -n "$domestic_base" ]; then
-    case "$domestic_format" in
-      manifest) domestic_url="${domestic_base%/}/$archive.parts" ;;
-      archive) domestic_url="${domestic_base%/}/$archive" ;;
-    esac
-    domestic_json="\"$domestic_url\""
-  fi
+  domestic_json=$(domestic_urls_json "$architecture" "$archive")
 
   if [ "$bundle_count" -gt 0 ]; then
     printf ',\n' >> "$payload_file"
   fi
-  printf '    {"architecture":"%s","sha256":"%s","inventory_sha256":"%s","public_url":"%s","domestic_url":%s}' \
+  printf '    {"architecture":"%s","sha256":"%s","inventory_sha256":"%s","public_url":"%s","domestic_urls":%s}' \
     "$architecture" "$actual" "$inventory_sha" "$public_url" "$domestic_json" >> "$payload_file"
   bundle_count=$((bundle_count + 1))
 }

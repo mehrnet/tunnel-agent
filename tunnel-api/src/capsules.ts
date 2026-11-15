@@ -1,4 +1,5 @@
 import { clusterControlPublicKey } from "./cluster-keys";
+import { registeredDomesticUrls } from "./bundles";
 import { base62Capsule, base64Url } from "./encoding";
 import type { BundleRow, Env, NodeRow } from "./models";
 import { signApiPayload } from "./signing";
@@ -53,7 +54,7 @@ export async function issueDomesticCapsule(env: Env, node: NodeRow): Promise<str
 function requireDomesticBundles(env: Env, amd64: BundleRow, arm64: BundleRow): void {
   const expected = env.DOMESTIC_CAPSULE_BUNDLE_VERSION?.trim();
   if (!expected || amd64.version !== expected || arm64.version !== expected ||
-    !amd64.domestic_url || !arm64.domestic_url) {
+    !registeredDomesticUrls(amd64)?.length || !registeredDomesticUrls(arm64)?.length) {
     throw new Error("domestic bootstrap is awaiting matching active Iranian mirror bundles");
   }
 }
@@ -65,7 +66,9 @@ function capsuleTtl(env: Env): number {
 
 function bundleUrls(env: Env, bundle: BundleRow): string {
   const publicUrl = new URL(bundle.public_url, filesOrigin(env)).toString();
-  return [bundle.domestic_url, publicUrl].filter((url): url is string => Boolean(url)).join(",");
+  const domesticUrls = registeredDomesticUrls(bundle);
+  if (!domesticUrls?.length) throw new Error("domestic bundle mirror is invalid");
+  return [...domesticUrls, publicUrl].join(",");
 }
 
 function relayEndpoint(relay: { address: string }): Relay {

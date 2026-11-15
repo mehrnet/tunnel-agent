@@ -74,7 +74,8 @@ and then atomically marks one archive active per architecture:
 BUNDLE_VERSION=vX.Y.Z \
 BUNDLE_SOURCE_DIR=/path/to/downloaded-release \
 BUNDLE_PUBLISH_TOKEN=... \
-DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
+DOMESTIC_BUNDLE_BASE_URL=http://dl.mehr-mir.ir/bundles/vX.Y.Z \
+DOMESTIC_BUNDLE_EXTRA_BASE_URLS=https://mehrnat.ir/bundles/vX.Y.Z \
 DOMESTIC_BUNDLE_FORMAT=archive \
 ./tools/publish.sh
 ```

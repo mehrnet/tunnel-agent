@@ -57,6 +57,7 @@ export interface BundleRow {
   inventory_sha256: string | null;
   public_url: string;
   domestic_url: string | null;
+  domestic_urls: string | null;
 }
 
 export interface DocumentRow {
@@ -75,7 +76,7 @@ export interface BundleActivationEntry {
   sha256: string;
   inventory_sha256: string;
   public_url: string;
-  domestic_url: string | null;
+  domestic_urls: string[];
 }
 
 export interface BundleActivation {

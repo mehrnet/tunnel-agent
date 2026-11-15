@@ -6,6 +6,8 @@ import { base64Url } from "./encoding";
 import { signApiPayload } from "./signing";
 import { BUNDLE_VERSION, equalSecret, filesOrigin, HEX_64, now, validArchitecture } from "./validation";
 
+const MAX_DOMESTIC_MIRRORS = 4;
+
 function bundleTarget(architecture: Architecture): string {
   return architecture === "amd64" ? "x86_64-unknown-linux-musl" : "aarch64-unknown-linux-musl";
 }
@@ -29,6 +31,25 @@ function validBundleSourceUrl(value: string): boolean {
   }
 }
 
+function validDomesticUrls(value: unknown, legacyValue: unknown): string[] | null {
+  const rawUrls = value === undefined
+    ? legacyValue === null || legacyValue === undefined ? [] : [legacyValue]
+    : value;
+  if (!Array.isArray(rawUrls) || rawUrls.length > MAX_DOMESTIC_MIRRORS) return null;
+  const urls = rawUrls.filter((url): url is string => typeof url === "string");
+  return urls.length === rawUrls.length && new Set(urls).size === urls.length &&
+    urls.every(validBundleSourceUrl) ? urls : null;
+}
+
+export function registeredDomesticUrls(bundle: BundleRow): string[] | null {
+  if (bundle.domestic_urls === null) return validDomesticUrls(undefined, bundle.domestic_url);
+  try {
+    return validDomesticUrls(JSON.parse(bundle.domestic_urls), undefined);
+  } catch {
+    return null;
+  }
+}
+
 function parseBundleEntry(
   rawEntry: unknown,
   expectedArchitectures: Set<Architecture>,
@@ -40,17 +61,13 @@ function parseBundleEntry(
   const sha256 = typeof entry.sha256 === "string" ? entry.sha256 : "";
   const inventorySha256 = typeof entry.inventory_sha256 === "string" ? entry.inventory_sha256 : "";
   const publicUrl = typeof entry.public_url === "string" ? entry.public_url : "";
-  const domesticUrl = entry.domestic_url;
+  const domesticUrls = validDomesticUrls(entry.domestic_urls, entry.domestic_url);
   if (!validArchitecture(architecture) || !expectedArchitectures.delete(architecture) ||
-    !HEX_64.test(sha256) || !HEX_64.test(inventorySha256)) return null;
+    !HEX_64.test(sha256) || !HEX_64.test(inventorySha256) || domesticUrls === null) return null;
 
   const expectedManifestPath = bundlePublicPath(version, architecture);
   if (publicUrl !== expectedManifestPath) return null;
-  if (domesticUrl !== null && (typeof domesticUrl !== "string" ||
-    !validBundleSourceUrl(domesticUrl))) {
-    return null;
-  }
-  return { architecture, sha256, inventory_sha256: inventorySha256, public_url: publicUrl, domestic_url: domesticUrl };
+  return { architecture, sha256, inventory_sha256: inventorySha256, public_url: publicUrl, domestic_urls: domesticUrls };
 }
 
 function parseBundleActivation(body: Record<string, unknown> | null): BundleActivation | null {
@@ -70,7 +87,9 @@ function parseBundleActivation(body: Record<string, unknown> | null): BundleActi
 function bootstrapEnv(bundle: BundleRow, nodeClass: NodeClass, origin: string): string {
   if (!HEX_64.test(bundle.sha256)) throw new Error("bundle registry has invalid SHA-256");
   const publicUrl = new URL(bundle.public_url, origin).toString();
-  const sources = nodeClass === "domestic" && bundle.domestic_url ? [bundle.domestic_url, publicUrl] : [publicUrl];
+  const domesticUrls = registeredDomesticUrls(bundle);
+  if (domesticUrls === null) throw new Error("bundle registry has invalid domestic mirror URLs");
+  const sources = nodeClass === "domestic" ? [...domesticUrls, publicUrl] : [publicUrl];
   if (sources.some((source) => !validBundleSourceUrl(source))) {
     throw new Error("bundle registry has invalid source URL");
   }
@@ -116,13 +135,14 @@ export async function handleBundleActivation(request: Request, env: Env): Promis
         .bind(bundle.architecture),
       env.DB.prepare(
         `INSERT INTO bundle_releases
-          (version, architecture, sha256, inventory_sha256, public_url, domestic_url, active, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+          (version, architecture, sha256, inventory_sha256, public_url, domestic_url, domestic_urls, active, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
          ON CONFLICT(version, architecture) DO UPDATE SET
            sha256 = excluded.sha256,
            inventory_sha256 = excluded.inventory_sha256,
            public_url = excluded.public_url,
            domestic_url = excluded.domestic_url,
+           domestic_urls = excluded.domestic_urls,
            active = 1,
            created_at = excluded.created_at`,
       ).bind(
@@ -131,7 +151,8 @@ export async function handleBundleActivation(request: Request, env: Env): Promis
         bundle.sha256,
         bundle.inventory_sha256,
         bundle.public_url,
-        bundle.domestic_url,
+        bundle.domestic_urls[0] ?? null,
+        JSON.stringify(bundle.domestic_urls),
         timestamp,
       ),
     );
