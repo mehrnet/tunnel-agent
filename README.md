@@ -70,8 +70,10 @@ domestic mirror. It reads account credentials exclusively from the ignored,
 owner-only `private/domestic-mirror-accounts.csv` file, uses FTPS, uploads
 chunks before the manifest, and verifies each mirror's public installer and
 manifests. Use `--version vX.Y.Z` to pin a release, `--mirror ID` to repair one
-host, and `--dry-run` to inspect work without uploading. It never deletes
-immutable historical releases. The private CSV has an explicit
+host, and `--dry-run` to inspect work without uploading. Use `--prune` to
+remove older published bundle versions after the current version verifies;
+without that explicit option it preserves immutable historical releases. The
+private CSV has an explicit
 `ftp_tls_insecure` field for the rare hosting provider that offers FTPS with a
 broken certificate; leave it `false` unless the provider mismatch is known and
 accepted. Set `sync_method` to `cpanel` where shared-host FTP data channels are
@@ -132,6 +134,24 @@ host-level listener collision across all of that node's clusters.
 
 The bot token and webhook secret are Cloudflare Worker secrets. Do not place
 either in `wrangler.jsonc`, release assets, or Git history.
+
+### Desired State Publishing
+
+Attach a UTF-8 `.json` v3 manifest to a Telegram message and use this as its
+caption (or as the message text when the client supports an attachment):
+
+```text
+/manifest_apply ir-6
+```
+
+The Worker confirms ownership, enforces the node's `domestic` or `foreign`
+scope, requires the fixed `/opt/tunnel-agent/current` bundle root, admits only
+known typed contracts, rejects inline secret fields and PEM private keys, and
+atomically increments the desired-state revision. `/manifest_revision ir-6`
+shows the current revision without exposing the document. The agent still
+performs full compilation and retains its last working plan if a new revision
+does not validate. Domestic nodes receive the signed revision only through an
+agent management lane; they never call the API.
 
 ## Commands
 

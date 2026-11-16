@@ -38,9 +38,12 @@ over a management lane. It intentionally has no write or restart behavior.
 
 The first envelope format is signed, not end-to-end encrypted. A foreign relay
 is therefore a trusted member of the cluster's control plane and may only carry
-declarative manifests with no inline secret values. The future document
-compiler must reject inline secrets for relayed domestic documents. Per-node
-sealed envelopes are required before the control plane carries secret material.
+declarative manifests with no inline secret values. The owner-facing publish
+path enforces the same boundary before a revision can enter D1: attach a v3
+manifest JSON to `/manifest_apply <server>` in Telegram. The Worker rejects
+inline protected fields and PEM private keys, so a foreign relay never receives
+a secret-bearing desired-state document. Per-node sealed envelopes are required
+before the control plane carries secret material.
 
 ## Management lane
 

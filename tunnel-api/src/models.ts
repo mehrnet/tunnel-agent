@@ -90,7 +90,15 @@ export interface TelegramUpdate {
     chat: { id: number };
     from?: { id: number; username?: string };
     text?: string;
+    caption?: string;
+    document?: TelegramDocument;
   };
+}
+
+export interface TelegramDocument {
+  file_id: string;
+  file_name?: string;
+  file_size?: number;
 }
 
 export interface AuditReferences {
