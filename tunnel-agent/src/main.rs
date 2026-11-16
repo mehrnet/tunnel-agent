@@ -1,5 +1,6 @@
 mod agent;
 mod agent_control;
+mod agent_heartbeat;
 mod agent_lane;
 mod agent_spec;
 mod capsule;
@@ -8,6 +9,7 @@ mod relay;
 mod release;
 mod runtime;
 mod seed;
+mod seed_client;
 
 use std::{
     io::Read,

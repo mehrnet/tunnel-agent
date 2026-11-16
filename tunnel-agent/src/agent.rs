@@ -13,7 +13,7 @@ use serde::Deserialize;
 use tokio::time::{MissedTickBehavior, interval};
 
 use crate::{
-    agent_control,
+    agent_control, agent_heartbeat,
     manifest::{self, Config, NodeScope},
     relay,
     runtime::{self, spawn_plan, start_plan, stop_plan},
@@ -46,7 +46,7 @@ enum DocumentFetch {
     },
 }
 
-fn read_secret_file(path: &Path, label: &str) -> Result<String, String> {
+pub(crate) fn read_secret_file(path: &Path, label: &str) -> Result<String, String> {
     let value = fs::read_to_string(path)
         .map_err(|error| format!("cannot read {label} {}: {error}", path.display()))?;
     let value = value.trim().to_owned();
@@ -267,24 +267,6 @@ async fn reconcile_online(
     }
 }
 
-async fn send_relay_heartbeat(settings: &AgentSettings, config: &Config) -> Result<(), String> {
-    let Some(source) = config
-        .agent
-        .bundle_seed
-        .as_ref()
-        .map(|seed| seed.source.clone())
-    else {
-        return Ok(());
-    };
-    let node_id_file = settings.node_id_file.clone();
-    tokio::task::spawn_blocking(move || {
-        let node_id = read_secret_file(&node_id_file, "node id")?;
-        seed::ping_relay(&source, &node_id)
-    })
-    .await
-    .map_err(|error| format!("relay heartbeat task failed: {error}"))?
-}
-
 async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Result<(), String> {
     let plan = manifest::compile(&config, &settings.state_dir)?;
     let mut running = start_plan(plan).await?;
@@ -322,7 +304,7 @@ async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Resu
                 }
             }
             _ = heartbeat.tick() => {
-                if let Err(error) = send_relay_heartbeat(settings, &config).await {
+                if let Err(error) = agent_heartbeat::send(settings, &config).await {
                     eprintln!("relay heartbeat failed: {error}");
                 }
             }

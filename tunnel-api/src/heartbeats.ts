@@ -1,7 +1,8 @@
 import { error, json, parseJson } from "./http";
 import type { Env } from "./models";
 import { authorizeNode } from "./nodes";
-import { foreignCanObserveDomestic, nodeById, recordNodeHeartbeat } from "./store";
+import { foreignCanObserveDomestic, recordNodeHeartbeat } from "./heartbeats-store";
+import { nodeById } from "./store";
 import { now } from "./validation";
 
 const MAX_OBSERVATIONS = 64;

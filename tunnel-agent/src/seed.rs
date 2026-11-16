@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{BufRead, BufReader, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
@@ -8,13 +8,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use reqwest::{StatusCode, blocking::Client, redirect::Policy};
-
 use crate::release::{
     BundleFile, BundleIndex, INDEX_NAME, ReleaseDocument, as_utf8, cache_link_or_copy,
     ensure_index_matches_document, local_architecture, parse_index, set_mode, sha256_bytes,
     unique_suffix, valid_hash, verify_file, verify_release_document,
 };
+use crate::seed_client::SeedSource;
 
 const MAX_DOCUMENT_BYTES: u64 = 16_384;
 const MAX_INDEX_BYTES: u64 = 1_048_576;
@@ -25,11 +24,6 @@ pub(crate) struct SeedResult {
     pub(crate) reused_files: usize,
     pub(crate) changed: bool,
     pub(crate) activated: bool,
-}
-
-struct SeedSource {
-    base: String,
-    client: Client,
 }
 
 struct ServeState {
@@ -448,83 +442,6 @@ fn activate_release(root: &Path, release: &Path) -> Result<(), String> {
 
 fn is_current_release(root: &Path, release: &Path) -> bool {
     fs::canonicalize(root.join("current")).ok() == fs::canonicalize(release).ok()
-}
-
-impl SeedSource {
-    fn new(base: &str) -> Result<Self, String> {
-        let url = reqwest::Url::parse(base).map_err(|_| "seed source URL is invalid".to_owned())?;
-        if url.scheme() != "http"
-            || !matches!(url.host_str(), Some("127.0.0.1") | Some("::1"))
-            || url.port().is_none()
-            || url.path() != "/"
-            || url.query().is_some()
-            || !url.username().is_empty()
-            || url.password().is_some()
-        {
-            return Err("seed source must be an explicit loopback HTTP listener".to_owned());
-        }
-        let client = Client::builder()
-            .redirect(Policy::none())
-            // A seed endpoint is reachable only through an explicitly mapped
-            // loopback management lane, never through host proxy settings.
-            .no_proxy()
-            .build()
-            .map_err(|error| format!("cannot build seed client: {error}"))?;
-        Ok(Self {
-            base: base.trim_end_matches('/').to_owned(),
-            client,
-        })
-    }
-
-    fn get_bytes(&self, path: &str, limit: u64) -> Result<Vec<u8>, String> {
-        let response = self.request(path)?;
-        if response
-            .content_length()
-            .is_some_and(|length| length > limit)
-        {
-            return Err("seed response exceeds the maximum size".to_owned());
-        }
-        let body = response
-            .bytes()
-            .map_err(|error| format!("cannot read seed response: {error}"))?;
-        if body.len() as u64 > limit {
-            return Err("seed response exceeds the maximum size".to_owned());
-        }
-        Ok(body.to_vec())
-    }
-
-    fn get_file(&self, path: &str, destination: &Path, expected_bytes: u64) -> Result<(), String> {
-        let mut response = self.request(path)?;
-        if response.content_length() != Some(expected_bytes) {
-            return Err("seed blob length does not match its inventory".to_owned());
-        }
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(destination)
-            .map_err(|error| format!("cannot create seed blob cache: {error}"))?;
-        let copied = response
-            .copy_to(&mut file)
-            .map_err(|error| format!("cannot read seed blob: {error}"))?;
-        if copied == expected_bytes {
-            Ok(())
-        } else {
-            Err("seed blob length does not match its inventory".to_owned())
-        }
-    }
-
-    fn request(&self, path: &str) -> Result<reqwest::blocking::Response, String> {
-        let response = self
-            .client
-            .get(format!("{}{path}", self.base))
-            .send()
-            .map_err(|error| format!("cannot contact seed source: {error}"))?;
-        if response.status() == StatusCode::OK {
-            Ok(response)
-        } else {
-            Err(format!("seed source returned HTTP {}", response.status()))
-        }
-    }
 }
 
 fn valid_node_id(value: &str) -> bool {
