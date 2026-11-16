@@ -103,13 +103,14 @@ After the Worker deploys, register its webhook with the same secret supplied to
 curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
   --data-urlencode "url=https://tunnel-api.mehrnet.com/api/telegram/webhook" \
   --data-urlencode "secret_token=${TELEGRAM_WEBHOOK_SECRET}" \
-  --data-urlencode 'allowed_updates=["message"]'
+  --data-urlencode 'allowed_updates=["message","callback_query"]'
 ```
 
-Verify the bot with `/start`. A Telegram user becomes an owner on their first
-valid command. Owners can create clusters and attach a server to multiple
-clusters, but a server must have at least one membership before `/install`
-returns a one-time command.
+Verify the bot with `/start` and a menu button. Telegram does not send inline
+button presses unless `callback_query` is included in `allowed_updates`. A
+Telegram user becomes an owner on their first valid command. Owners can create
+clusters and attach a server to multiple clusters, but a server must have at
+least one membership before `/install` returns a one-time command.
 
 ## 4. W4R canary enrollment
 
