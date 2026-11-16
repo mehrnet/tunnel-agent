@@ -214,7 +214,8 @@ fn serve_ping(
         return write_response(stream, 404, "text/plain", b"not found\n");
     }
     record_relay_heartbeat(directory, node_id)?;
-    write_response(stream, 204, "text/plain", b"")
+    // SeedSource accepts successful seed endpoints as HTTP 200 responses.
+    write_response(stream, 200, "text/plain", b"")
 }
 
 fn record_relay_heartbeat(relay_directory: &Path, node_id: &str) -> Result<(), String> {
