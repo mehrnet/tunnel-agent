@@ -11,11 +11,11 @@ const NODE_ID = /^[0-9a-f-]{36}$/;
 
 export async function handleMenuCallback(env: Env, callback: TelegramCallbackQuery): Promise<void> {
   const message = callback.message;
-  if (!message) return answerCallback(env, callback.id, "This inline menu cannot be used here.");
+  if (!message) return answerCallback(env, callback.id, "❌ این دکمه در این گفتگو قابل استفاده نیست.");
   const owner = await ownerForTelegram(env, callback.from.id, callback.from.username);
   const session = await telegramSession(env, owner.id, message.chat.id);
   if (!session || session.menu_message_id !== message.message_id) {
-    return answerCallback(env, callback.id, "This menu is stale. Send /start for a new menu.");
+    return answerCallback(env, callback.id, "⌛ این منو منقضی شده است. /start را ارسال کنید.");
   }
   await answerCallback(env, callback.id);
   try {
@@ -51,12 +51,12 @@ async function applyCallback(
   data: string,
 ): Promise<void> {
   const [action, value, extra] = data.split(":");
-  if (extra !== undefined) throw new Error("Invalid menu action.");
+  if (extra !== undefined) throw new Error("دستور منو معتبر نیست.");
   if (action === "home") return showHome(env, owner, chatId);
-  if (action === "help") return showPrompt(env, owner, chatId, "Help", "Use the buttons to browse clusters and servers. When prompted, send the requested name, server details, or manifest file.");
+  if (action === "help") return showPrompt(env, owner, chatId, "ℹ️ راهنما", "از دکمه‌های هر خوشه برای افزودن سرور داخلی یا خارجی استفاده کنید. هنگام درخواست، نام، نشانی سرور یا فایل تنظیمات را ارسال کنید.");
   if (action === "clusters") return showHome(env, owner, chatId);
   if (action === "nodes") return showView(env, owner, chatId, { kind: "nodes" });
-  if (action === "cluster-add") return setPrompt(env, owner, chatId, "cluster-create", {}, "New cluster", "Send the lowercase cluster name.");
+  if (action === "cluster-add") return setPrompt(env, owner, chatId, "cluster-create", {}, "➕ خوشه جدید", "نام خوشه را با حروف کوچک، عدد و خط تیره ارسال کنید.");
   if (action === "cluster" && validId(value)) return showView(env, owner, chatId, { kind: "cluster", clusterId: value });
   if (action === "node" && validId(value)) return showView(env, owner, chatId, { kind: "node", nodeId: value });
   if (action === "newd" && validId(value)) return setServerPrompt(env, owner, chatId, value, "domestic");
@@ -65,7 +65,7 @@ async function applyCallback(
   if (action === "attach-node" && validId(value)) return attachExistingNode(env, owner, chatId, session, value);
   if (action === "install" && validId(value)) return issueInstall(env, owner, chatId, session, value);
   if (action === "manifest" && validId(value)) return setManifestPrompt(env, owner, chatId, value);
-  throw new Error("This menu action is no longer available.");
+  throw new Error("این دکمه دیگر در دسترس نیست.");
 }
 
 async function showHome(env: Env, owner: OwnerRow, chatId: number): Promise<void> {
@@ -89,12 +89,12 @@ async function setPrompt(env: Env, owner: OwnerRow, chatId: number, mode: string
 }
 
 async function setServerPrompt(env: Env, owner: OwnerRow, chatId: number, clusterId: string, nodeClass: NodeClass): Promise<void> {
-  if (!await clusterById(env, owner.id, clusterId)) throw new Error("That cluster no longer exists.");
-  await setPrompt(env, owner, chatId, "server-create", { clusterId, nodeClass }, `New ${nodeClass} server`, "Send `server-name [address]`.");
+  if (!await clusterById(env, owner.id, clusterId)) throw new Error("خوشه انتخاب‌شده دیگر وجود ندارد.");
+  await setPrompt(env, owner, chatId, "server-create", { clusterId, nodeClass }, `➕ سرور ${nodeClassLabel(nodeClass)} جدید`, "`نام-سرور [نشانی]` را با حروف کوچک ارسال کنید.");
 }
 
 async function showAttach(env: Env, owner: OwnerRow, chatId: number, clusterId: string): Promise<void> {
-  if (!await clusterById(env, owner.id, clusterId)) throw new Error("That cluster no longer exists.");
+  if (!await clusterById(env, owner.id, clusterId)) throw new Error("خوشه انتخاب‌شده دیگر وجود ندارد.");
   const session = await setTelegramSessionState(env, owner.id, chatId, "attach", { clusterId });
   await presentMenu(env, owner, chatId, session, { kind: "attach", clusterId });
 }
@@ -102,35 +102,35 @@ async function showAttach(env: Env, owner: OwnerRow, chatId: number, clusterId: 
 async function attachExistingNode(env: Env, owner: OwnerRow, chatId: number, session: TelegramSessionRow, nodeId: string): Promise<void> {
   const clusterId = requiredPayloadId(session, "clusterId");
   const [cluster, node] = await Promise.all([clusterById(env, owner.id, clusterId), nodeForOwnerById(env, owner.id, nodeId)]);
-  if (!cluster || !node) throw new Error("The selected server or cluster no longer exists.");
+  if (!cluster || !node) throw new Error("سرور یا خوشه انتخاب‌شده دیگر وجود ندارد.");
   await attachNodeToCluster(env, cluster.id, node.id, node.node_class);
   await audit(env, "cluster.node_attached", { node: node.name, role: node.node_class }, { ownerId: owner.id, nodeId: node.id, clusterId: cluster.id });
   const active = await setTelegramSessionState(env, owner.id, chatId, "idle", {});
-  await presentMenu(env, owner, chatId, active, { kind: "cluster", clusterId, notice: `${node.name} attached.` });
+  await presentMenu(env, owner, chatId, active, { kind: "cluster", clusterId, notice: `✅ ${node.name} متصل شد.` });
 }
 
 async function issueInstall(env: Env, owner: OwnerRow, chatId: number, session: TelegramSessionRow, nodeId: string): Promise<void> {
   const node = await nodeForOwnerById(env, owner.id, nodeId);
-  if (!node || await clusterMembershipCount(env, nodeId) < 1) throw new Error("This server must belong to a cluster before installation.");
+  if (!node || await clusterMembershipCount(env, nodeId) < 1) throw new Error("سرور باید پیش از دریافت دستور نصب، عضو حداقل یک خوشه باشد.");
   const command = await installCommand(env, owner, node);
   await sendInstallCommand(env, chatId, node.name, command);
   const active = await setTelegramSessionState(env, owner.id, chatId, "idle", {});
-  await presentMenu(env, owner, chatId, active, { kind: "node", nodeId, notice: "A one-time installation command was sent." });
+  await presentMenu(env, owner, chatId, active, { kind: "node", nodeId, notice: "✅ دستور نصب یک‌بارمصرف ارسال شد." });
 }
 
 async function setManifestPrompt(env: Env, owner: OwnerRow, chatId: number, nodeId: string): Promise<void> {
-  if (!await nodeForOwnerById(env, owner.id, nodeId)) throw new Error("That server no longer exists.");
-  await setPrompt(env, owner, chatId, "manifest-apply", { nodeId }, "Apply desired state", "Attach the v3 UTF-8 JSON manifest file now.");
+  if (!await nodeForOwnerById(env, owner.id, nodeId)) throw new Error("سرور انتخاب‌شده دیگر وجود ندارد.");
+  await setPrompt(env, owner, chatId, "manifest-apply", { nodeId }, "📝 اعمال وضعیت مطلوب", "فایل JSON نسخه ۳ با کدگذاری UTF-8 را اکنون پیوست کنید.");
 }
 
 async function createClusterFromInput(env: Env, owner: OwnerRow, chatId: number, _session: TelegramSessionRow, text: string): Promise<void> {
   const name = text.toLowerCase();
-  if (!NODE_NAME.test(name)) throw new Error("Cluster names use lowercase letters, numbers, and hyphens.");
-  if (await clusterByName(env, owner.id, name)) throw new Error(`Cluster ${name} already exists.`);
+  if (!NODE_NAME.test(name)) throw new Error("نام خوشه فقط می‌تواند شامل حروف کوچک انگلیسی، عدد و خط تیره باشد.");
+  if (await clusterByName(env, owner.id, name)) throw new Error(`خوشه ${name} از قبل وجود دارد.`);
   const cluster = await createClusterForOwner(env, owner.id, name);
   await audit(env, "cluster.created", { name }, { ownerId: owner.id, clusterId: cluster.id });
   const active = await setTelegramSessionState(env, owner.id, chatId, "idle", {});
-  await presentMenu(env, owner, chatId, active, { kind: "cluster", clusterId: cluster.id, notice: `Created ${name}.` });
+  await presentMenu(env, owner, chatId, active, { kind: "cluster", clusterId: cluster.id, notice: `✅ خوشه ${name} ایجاد شد.` });
 }
 
 async function createServerFromInput(env: Env, owner: OwnerRow, chatId: number, session: TelegramSessionRow, text: string): Promise<void> {
@@ -138,24 +138,24 @@ async function createServerFromInput(env: Env, owner: OwnerRow, chatId: number, 
   const clusterId = requiredPayloadId(session, "clusterId");
   const nodeClass = payloadNodeClass(session);
   const name = rawName?.toLowerCase();
-  if (!name || extra || !NODE_NAME.test(name)) throw new Error("Send `server-name [address]` using a lowercase server name.");
-  if (!await clusterById(env, owner.id, clusterId)) throw new Error("That cluster no longer exists.");
-  if (await nodeByName(env, owner.id, name)) throw new Error(`${name} already exists. Use Attach server from the cluster menu.`);
+  if (!name || extra || !NODE_NAME.test(name)) throw new Error("`نام-سرور [نشانی]` را با نامی شامل حروف کوچک انگلیسی، عدد و خط تیره ارسال کنید.");
+  if (!await clusterById(env, owner.id, clusterId)) throw new Error("خوشه انتخاب‌شده دیگر وجود ندارد.");
+  if (await nodeByName(env, owner.id, name)) throw new Error(`${name} از قبل وجود دارد. آن را از منوی خوشه متصل کنید.`);
   const node = await createNodeForOwner(env, owner.id, name, nodeClass, address ?? null, nodeManifest(nodeClass));
   await attachNodeToCluster(env, clusterId, node.id, nodeClass);
   await audit(env, "cluster.node_attached", { node: name, role: nodeClass }, { ownerId: owner.id, nodeId: node.id, clusterId });
   const active = await setTelegramSessionState(env, owner.id, chatId, "idle", {});
-  await presentMenu(env, owner, chatId, active, { kind: "node", nodeId: node.id, notice: `${name} was created and attached.` });
+  await presentMenu(env, owner, chatId, active, { kind: "node", nodeId: node.id, notice: `✅ ${name} ایجاد و متصل شد.` });
 }
 
 async function applyManifestFromInput(env: Env, owner: OwnerRow, chatId: number, session: TelegramSessionRow, document: TelegramMessage["document"]): Promise<void> {
-  if (!document) throw new Error("Attach a JSON manifest file.");
+  if (!document) throw new Error("فایل JSON تنظیمات را پیوست کنید.");
   const nodeId = requiredPayloadId(session, "nodeId");
   const node = await nodeForOwnerById(env, owner.id, nodeId);
-  if (!node) throw new Error("That server no longer exists.");
+  if (!node) throw new Error("سرور انتخاب‌شده دیگر وجود ندارد.");
   const updated = await replaceNodeDocument(env, owner, node, await downloadTelegramDocument(env, document));
   const active = await setTelegramSessionState(env, owner.id, chatId, "idle", {});
-  await presentMenu(env, owner, chatId, active, { kind: "node", nodeId, notice: `Applied revision ${updated.revision}.` });
+  await presentMenu(env, owner, chatId, active, { kind: "node", nodeId, notice: `✅ نسخه ${updated.revision} اعمال شد.` });
 }
 
 async function installCommand(env: Env, owner: OwnerRow, node: NodeRow): Promise<string> {
@@ -171,28 +171,28 @@ async function installCommand(env: Env, owner: OwnerRow, node: NodeRow): Promise
 }
 
 function pendingPrompt(session: TelegramSessionRow): MenuView {
-  if (session.mode === "cluster-create") return { kind: "prompt", title: "New cluster", detail: "Send the lowercase cluster name." };
-  if (session.mode === "server-create") return { kind: "prompt", title: "New server", detail: "Send `server-name [address]`." };
-  if (session.mode === "manifest-apply") return { kind: "prompt", title: "Apply desired state", detail: "Attach the v3 UTF-8 JSON manifest file now." };
+  if (session.mode === "cluster-create") return { kind: "prompt", title: "➕ خوشه جدید", detail: "نام خوشه را با حروف کوچک، عدد و خط تیره ارسال کنید." };
+  if (session.mode === "server-create") return { kind: "prompt", title: "➕ سرور جدید", detail: "`نام-سرور [نشانی]` را با حروف کوچک ارسال کنید." };
+  if (session.mode === "manifest-apply") return { kind: "prompt", title: "📝 اعمال وضعیت مطلوب", detail: "فایل JSON نسخه ۳ با کدگذاری UTF-8 را اکنون پیوست کنید." };
   return { kind: "home" };
 }
 
 function payloadId(session: TelegramSessionRow, key: string, required: boolean): string | undefined {
   const value = payload(session)[key];
   if (typeof value === "string" && validId(value)) return value;
-  if (required) throw new Error("The menu context expired. Open the menu again.");
+  if (required) throw new Error("زمینه این منو منقضی شده است. منو را دوباره باز کنید.");
   return undefined;
 }
 
 function payloadNodeClass(session: TelegramSessionRow): NodeClass {
   const value = payload(session).nodeClass;
-  if (typeof value !== "string" || !validNodeClass(value)) throw new Error("The selected server class expired. Open the menu again.");
+  if (typeof value !== "string" || !validNodeClass(value)) throw new Error("نوع سرور انتخاب‌شده منقضی شده است. منو را دوباره باز کنید.");
   return value;
 }
 
 function requiredPayloadId(session: TelegramSessionRow, key: string): string {
   const value = payloadId(session, key, false);
-  if (!value) throw new Error("The menu context expired. Open the menu again.");
+  if (!value) throw new Error("زمینه این منو منقضی شده است. منو را دوباره باز کنید.");
   return value;
 }
 
@@ -210,5 +210,14 @@ function validId(value: string | undefined): value is string {
 }
 
 function displayError(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "The requested operation failed.";
+  const message = reason instanceof Error ? reason.message : "";
+  if (message.startsWith("فایل JSON") || message.includes("manifest") || message.includes("document")) {
+    return "❌ فایل وضعیت مطلوب معتبر نیست. ساختار و نسخه فایل را بررسی کنید.";
+  }
+  if (/[\u0600-\u06ff]/.test(message)) return `❌ ${message}`;
+  return "❌ عملیات انجام نشد. دوباره تلاش کنید.";
+}
+
+function nodeClassLabel(nodeClass: NodeClass): string {
+  return nodeClass === "domestic" ? "داخلی" : "خارجی";
 }

@@ -23,7 +23,7 @@ export async function presentMenu(
   view: MenuView,
 ): Promise<void> {
   const menu = await buildMenu(env, owner, view);
-  if (menu.text.length > 4096) throw new Error("menu text exceeds Telegram's limit");
+  if (menu.text.length > 4096) throw new Error("متن منو از حد مجاز تلگرام طولانی‌تر است.");
   if (recentMenu(session)) {
     const edited = await editMenu(env, chatId, session.menu_message_id!, menu);
     if (edited) return;
@@ -46,74 +46,74 @@ async function buildMenu(env: Env, owner: OwnerRow, view: MenuView): Promise<Tel
 
 function homeMenu(clusters: ClusterRow[], notice?: string): TelegramMenu {
   const rows = clusters.slice(0, MAX_CLUSTER_ROWS).flatMap((cluster) => [
-    [button(cluster.name, `cluster:${cluster.id}`)],
-    [button("Add domestic", `newd:${cluster.id}`), button("Add foreign", `newf:${cluster.id}`)],
+    [button(`📦 ${cluster.name}`, `cluster:${cluster.id}`)],
+    [button("🇮🇷 افزودن داخلی", `newd:${cluster.id}`), button("🌍 افزودن خارجی", `newf:${cluster.id}`)],
   ]);
-  const suffix = clusters.length > MAX_CLUSTER_ROWS ? `\nShowing the first ${MAX_CLUSTER_ROWS} clusters.` : "";
+  const suffix = clusters.length > MAX_CLUSTER_ROWS ? `\nفقط ${MAX_CLUSTER_ROWS} خوشه اول نمایش داده می‌شوند.` : "";
   return {
-    text: ["Tunnel Agent", notice, clusters.length ? "Choose a cluster or add a server directly." : "Create a cluster to add its first server."]
+    text: ["🧭 تونل ایجنت", notice, clusters.length ? "یک خوشه را انتخاب کنید یا سرور جدید را مستقیماً اضافه کنید." : "ابتدا یک خوشه بسازید تا نخستین سرور آن را اضافه کنید."]
       .filter(Boolean).join("\n\n") + suffix,
-    keyboard: [...rows, [button("Servers", "nodes"), button("Add cluster", "cluster-add")], [button("Help", "help")]],
+    keyboard: [...rows, [button("🖥 سرورها", "nodes"), button("➕ ساخت خوشه", "cluster-add")], [button("ℹ️ راهنما", "help")]],
   };
 }
 
 async function clusterMenu(env: Env, owner: OwnerRow, view: Extract<MenuView, { kind: "cluster" }>): Promise<TelegramMenu> {
   const cluster = await clusterById(env, owner.id, view.clusterId);
-  if (!cluster) return homeMenu(await clustersForOwner(env, owner.id), "That cluster no longer exists.");
+  if (!cluster) return homeMenu(await clustersForOwner(env, owner.id), "❌ خوشه انتخاب‌شده دیگر وجود ندارد.");
   const nodes = await nodesForCluster(env, owner.id, cluster.id);
   const nodeRows = nodes.slice(0, MAX_NODE_ROWS).map((node) => [button(node.name, `node:${node.id}`)]);
-  const summary = nodes.length ? nodes.map(nodeSummary).join("\n") : "No servers are attached.";
+  const summary = nodes.length ? nodes.map(nodeSummary).join("\n") : "سروری به این خوشه متصل نیست.";
   return {
-    text: [`Cluster: ${cluster.name}`, view.notice, summary].filter(Boolean).join("\n\n"),
+    text: [`📦 خوشه: ${cluster.name}`, view.notice, summary].filter(Boolean).join("\n\n"),
     keyboard: [
       ...nodeRows,
-      [button("Add domestic", `newd:${cluster.id}`), button("Add foreign", `newf:${cluster.id}`)],
-      [button("Attach server", `attach:${cluster.id}`), button("Home", "home")],
+      [button("🇮🇷 افزودن داخلی", `newd:${cluster.id}`), button("🌍 افزودن خارجی", `newf:${cluster.id}`)],
+      [button("🔗 اتصال سرور موجود", `attach:${cluster.id}`), button("🏠 خانه", "home")],
     ],
   };
 }
 
 function nodesMenu(nodes: NodeRow[], notice?: string): TelegramMenu {
   const rows = nodes.slice(0, MAX_NODE_ROWS).map((node) => [button(node.name, `node:${node.id}`)]);
-  const suffix = nodes.length > MAX_NODE_ROWS ? `\nShowing the first ${MAX_NODE_ROWS} servers.` : "";
+  const suffix = nodes.length > MAX_NODE_ROWS ? `\nفقط ${MAX_NODE_ROWS} سرور اول نمایش داده می‌شوند.` : "";
   return {
-    text: ["Servers", notice, nodes.length ? "Select a server." : "No servers yet."] .filter(Boolean).join("\n\n") + suffix,
-    keyboard: [...rows, [button("Home", "home")]],
+    text: ["🖥 سرورها", notice, nodes.length ? "یک سرور را انتخاب کنید." : "هنوز سروری ثبت نشده است."] .filter(Boolean).join("\n\n") + suffix,
+    keyboard: [...rows, [button("🏠 خانه", "home")]],
   };
 }
 
 async function nodeMenu(env: Env, owner: OwnerRow, view: Extract<MenuView, { kind: "node" }>): Promise<TelegramMenu> {
   const node = await nodeForOwnerById(env, owner.id, view.nodeId);
-  if (!node) return homeMenu(await clustersForOwner(env, owner.id), "That server no longer exists.");
+  if (!node) return homeMenu(await clustersForOwner(env, owner.id), "❌ سرور انتخاب‌شده دیگر وجود ندارد.");
   const document = await nodeDocument(env, node.id);
   const text = [
-    `Server: ${node.name}`,
-    `Class: ${node.node_class}`,
-    `Status: ${node.status}`,
-    `Address: ${node.address ?? "not set"}`,
-    `Desired-state revision: ${document?.revision ?? "missing"}`,
+    `🖥 سرور: ${node.name}`,
+    `🧩 نوع: ${menuNodeClassLabel(node.node_class)}`,
+    `📡 وضعیت: ${nodeStatusLabel(node.status)}`,
+    `📍 نشانی: ${node.address ?? "ثبت نشده"}`,
+    `🧾 نسخه وضعیت مطلوب: ${document?.revision ?? "ثبت نشده"}`,
     view.notice,
   ].filter(Boolean).join("\n");
   return {
     text,
-    keyboard: [[button("Installation command", `install:${node.id}`), button("Apply manifest", `manifest:${node.id}`)], [button("Back", "nodes")]],
+    keyboard: [[button("📥 دستور نصب", `install:${node.id}`), button("📝 اعمال تنظیمات", `manifest:${node.id}`)], [button("⬅️ بازگشت", "nodes")]],
   };
 }
 
 async function attachMenu(env: Env, owner: OwnerRow, clusterId: string): Promise<TelegramMenu> {
   const cluster = await clusterById(env, owner.id, clusterId);
-  if (!cluster) return homeMenu(await clustersForOwner(env, owner.id), "That cluster no longer exists.");
+  if (!cluster) return homeMenu(await clustersForOwner(env, owner.id), "❌ خوشه انتخاب‌شده دیگر وجود ندارد.");
   const nodes = await unattachedNodesForCluster(env, owner.id, clusterId);
   return {
-    text: nodes.length ? `Attach server to ${cluster.name}` : `All of your servers are already attached to ${cluster.name}.`,
+    text: nodes.length ? `🔗 اتصال سرور به ${cluster.name}` : `✅ همه سرورهای شما به ${cluster.name} متصل هستند.`,
     keyboard: nodes.length
-      ? [...nodes.slice(0, MAX_NODE_ROWS).map((node) => [button(`${node.name} (${node.node_class})`, `attach-node:${node.id}`)]), [button("Back", `cluster:${clusterId}`)]]
-      : [[button("Back", `cluster:${clusterId}`)]],
+      ? [...nodes.slice(0, MAX_NODE_ROWS).map((node) => [button(`${node.name} (${menuNodeClassLabel(node.node_class)})`, `attach-node:${node.id}`)]), [button("⬅️ بازگشت", `cluster:${clusterId}`)]]
+      : [[button("⬅️ بازگشت", `cluster:${clusterId}`)]],
   };
 }
 
 function promptMenu(title: string, detail: string): TelegramMenu {
-  return { text: `${title}\n\n${detail}`, keyboard: [[button("Cancel", "home")]] };
+  return { text: `${title}\n\n${detail}`, keyboard: [[button("✖️ لغو", "home")]] };
 }
 
 function button(text: string, callbackData: string) {
@@ -121,7 +121,17 @@ function button(text: string, callbackData: string) {
 }
 
 function nodeSummary(node: NodeRow): string {
-  return `- ${node.name}: ${node.node_class}, ${node.status}`;
+  return `• ${node.name}: ${menuNodeClassLabel(node.node_class)}، ${nodeStatusLabel(node.status)}`;
+}
+
+function menuNodeClassLabel(nodeClass: NodeRow["node_class"]): string {
+  return nodeClass === "domestic" ? "داخلی" : "خارجی";
+}
+
+function nodeStatusLabel(status: NodeRow["status"]): string {
+  if (status === "enrolled") return "فعال";
+  if (status === "revoked") return "لغوشده";
+  return "در انتظار نصب";
 }
 
 function recentMenu(session: TelegramSessionRow): boolean {

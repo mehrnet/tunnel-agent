@@ -28,34 +28,32 @@ export async function sendMenu(env: Env, chatId: number, menu: TelegramMenu): Pr
     disable_web_page_preview: true,
     reply_markup: { inline_keyboard: menu.keyboard },
   });
-  if (!result || !Number.isInteger(result.message_id) || !Number.isInteger(result.date)) {
-    throw new Error("Telegram did not return a menu message");
-  }
+  if (!result || !Number.isInteger(result.message_id) || !Number.isInteger(result.date)) throw new Error("ارسال منو توسط تلگرام ناموفق بود.");
   return result;
 }
 
 export async function sendText(env: Env, chatId: number, text: string): Promise<void> {
-  if (text.length > 4096) throw new Error("Telegram text exceeds its message limit");
+  if (text.length > 4096) throw new Error("متن از حد مجاز تلگرام طولانی‌تر است.");
   const result = await callTelegram<TelegramMessageRef>(env, "sendMessage", {
     chat_id: chatId,
     text,
     disable_web_page_preview: true,
   });
-  if (!result) throw new Error("Telegram did not accept the message");
+  if (!result) throw new Error("تلگرام پیام را نپذیرفت.");
 }
 
 export async function sendInstallCommand(env: Env, chatId: number, nodeName: string, command: string): Promise<void> {
   if (command.length <= 4096) return sendText(env, chatId, command);
   const token = env.TELEGRAM_BOT_TOKEN;
-  if (!token) throw new Error("Telegram delivery is not configured");
+  if (!token) throw new Error("ارسال تلگرام پیکربندی نشده است.");
   const form = new FormData();
   form.set("chat_id", String(chatId));
-  form.set("caption", "The bootstrap command exceeded Telegram's message limit. Open this text file and copy its single command.");
+  form.set("caption", "📄 دستور راه‌اندازی از حد مجاز پیام تلگرام طولانی‌تر است. فایل را باز کنید و تنها دستور داخل آن را کپی کنید.");
   form.set("document", new Blob([command], { type: "text/plain" }), `install-${nodeName}.txt`);
   const response = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: "POST", body: form });
-  if (!response.ok) throw new Error("Telegram did not accept the installation file");
+  if (!response.ok) throw new Error("تلگرام فایل دستور نصب را نپذیرفت.");
   const payload = await response.json<TelegramResponse<TelegramMessageRef>>();
-  if (!payload.ok) throw new Error("Telegram did not accept the installation file");
+  if (!payload.ok) throw new Error("تلگرام فایل دستور نصب را نپذیرفت.");
 }
 
 export async function editMenu(env: Env, chatId: number, messageId: number, menu: TelegramMenu): Promise<boolean> {
@@ -81,29 +79,29 @@ export async function answerCallback(env: Env, callbackId: string, text?: string
 }
 
 export async function downloadTelegramDocument(env: Env, document: TelegramDocument): Promise<string> {
-  if (!document.file_name?.toLowerCase().endsWith(".json")) throw new Error("attached manifest must be a .json file");
+  if (!document.file_name?.toLowerCase().endsWith(".json")) throw new Error("فایل پیوست باید با پسوند .json باشد.");
   const fileSize = document.file_size;
   if (typeof fileSize !== "number" || !Number.isSafeInteger(fileSize) || fileSize < 1 || fileSize > MAX_MANIFEST_BYTES) {
-    throw new Error(`attached manifest must be between 1 and ${MAX_MANIFEST_BYTES} bytes`);
+    throw new Error(`فایل پیوست باید بین ۱ تا ${MAX_MANIFEST_BYTES} بایت باشد.`);
   }
   const metadata = await callTelegram<{ file_path?: string }>(env, "getFile", { file_id: document.file_id });
   const path = metadata?.file_path;
-  if (!path || !/^[A-Za-z0-9_./-]+$/.test(path) || path.includes("..")) throw new Error("Telegram returned an invalid file path");
+  if (!path || !/^[A-Za-z0-9_./-]+$/.test(path) || path.includes("..")) throw new Error("تلگرام مسیر فایل نامعتبر برگرداند.");
 
   const response = await fetch(`${fileOrigin(env)}/${path}`);
-  if (!response.ok) throw new Error("cannot download the attached manifest");
+  if (!response.ok) throw new Error("دریافت فایل پیوست ممکن نشد.");
   const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > MAX_MANIFEST_BYTES) throw new Error(`attached manifest exceeds ${MAX_MANIFEST_BYTES} bytes`);
+  if (bytes.byteLength > MAX_MANIFEST_BYTES) throw new Error(`فایل پیوست از ${MAX_MANIFEST_BYTES} بایت بزرگ‌تر است.`);
   try {
     return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
   } catch {
-    throw new Error("attached manifest is not UTF-8 text");
+    throw new Error("فایل پیوست متن UTF-8 نیست.");
   }
 }
 
 async function callTelegram<T>(env: Env, method: string, body: unknown): Promise<T | undefined> {
   const token = env.TELEGRAM_BOT_TOKEN;
-  if (!token) throw new Error("Telegram delivery is not configured");
+  if (!token) throw new Error("ارسال تلگرام پیکربندی نشده است.");
   const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -116,6 +114,6 @@ async function callTelegram<T>(env: Env, method: string, body: unknown): Promise
 
 function fileOrigin(env: Env): string {
   const token = env.TELEGRAM_BOT_TOKEN;
-  if (!token) throw new Error("Telegram delivery is not configured");
+  if (!token) throw new Error("ارسال تلگرام پیکربندی نشده است.");
   return `https://api.telegram.org/file/bot${token}`;
 }
