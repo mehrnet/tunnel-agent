@@ -111,9 +111,11 @@ must never bind a public address.
 2. Publication registers the archive SHA-256 and index SHA-256. Only an
    enrolled foreign node can request the API-signed release document.
 3. `seed-serve` verifies that its current release matches the signed document,
-   then exposes `/v1/release`, `/v1/index`, `/v1/blob/<sha256>`, and a signed
-   per-domestic-node `/v1/relay/<node-id>` document on a loopback listener. It
-   never serves arbitrary paths.
+   then exposes `/v1/release`, `/v1/index`, `/v1/blob/<sha256>`, a signed
+   per-domestic-node `/v1/relay/<node-id>` document, and
+   `/v1/ping/<node-id>` on a loopback listener. A valid relay fetch or ping
+   records a local foreign-relay timestamp for that domestic node. It never
+   serves arbitrary paths.
 4. A domestic node accepts only a signature made by the compiled API public
    key. It checks the index hash, release version, architecture, every blob's
    size and SHA-256, and every staged file before promotion.

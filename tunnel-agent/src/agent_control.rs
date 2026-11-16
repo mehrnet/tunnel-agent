@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use reqwest::blocking::Client;
+use reqwest::{blocking::Client, header::CONTENT_TYPE};
 use serde::Deserialize;
 
 use crate::{
@@ -34,6 +34,11 @@ struct RelayDocument {
     node_id: String,
     revision: u64,
     envelope: String,
+}
+
+#[derive(Deserialize)]
+struct RelayHeartbeat {
+    observed_at: u64,
 }
 
 pub(crate) fn prepare(
@@ -102,7 +107,8 @@ pub(crate) fn refresh_cache(
         node_id,
         node_token,
         &state_dir.join("relay-documents"),
-    )
+    )?;
+    report_relay_heartbeats(client, api_url, node_id, node_token, state_dir)
 }
 
 fn active_clients(config: &Config) -> impl Iterator<Item = &crate::agent_lane::AgentLane> {
@@ -221,6 +227,96 @@ fn cache_relay_documents(directory: &Path, documents: Vec<RelayDocument>) -> Res
         )?;
     }
     remove_stale_documents(directory, &active)
+}
+
+fn report_relay_heartbeats(
+    client: &Client,
+    api_url: &str,
+    node_id: &str,
+    node_token: &str,
+    state_dir: &Path,
+) -> Result<(), String> {
+    let heartbeats = read_relay_heartbeats(&state_dir.join("relay-heartbeats"))?;
+    let report_path = state_dir.join("relay-heartbeats-reported.json");
+    let mut reported = read_reported_heartbeats(&report_path)?;
+    let updates: Vec<_> = heartbeats
+        .into_iter()
+        .filter(|(domestic_id, observed_at)| {
+            reported
+                .get(domestic_id)
+                .is_none_or(|seen| observed_at > seen)
+        })
+        .collect();
+    if updates.is_empty() {
+        return Ok(());
+    }
+    let observations: Vec<_> = updates
+        .iter()
+        .map(|(domestic_id, observed_at)| {
+            serde_json::json!({ "node_id": domestic_id, "observed_at": observed_at })
+        })
+        .collect();
+    let endpoint = format!(
+        "{}/v1/nodes/{node_id}/heartbeats",
+        api_url.trim_end_matches('/')
+    );
+    let response = client
+        .post(endpoint)
+        .bearer_auth(node_token)
+        .header(CONTENT_TYPE, "application/json")
+        .body(serde_json::json!({ "observations": observations }).to_string())
+        .send()
+        .map_err(|error| format!("cannot report relay heartbeats: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "heartbeat report returned HTTP {}",
+            response.status()
+        ));
+    }
+    for (domestic_id, observed_at) in updates {
+        reported.insert(domestic_id, observed_at);
+    }
+    let contents = serde_json::to_vec(&reported)
+        .map_err(|error| format!("cannot serialize heartbeat report state: {error}"))?;
+    release::write_atomic(&report_path, &contents)
+}
+
+fn read_relay_heartbeats(directory: &Path) -> Result<HashMap<String, u64>, String> {
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
+        Err(error) => return Err(format!("cannot read relay heartbeats: {error}")),
+    };
+    let mut heartbeats = HashMap::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("cannot read relay heartbeat entry: {error}"))?;
+        let file_name = entry.file_name();
+        let Some(node_id) = file_name
+            .to_str()
+            .and_then(|name| name.strip_suffix(".json"))
+            .filter(|value| valid_uuid(value))
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        let contents = fs::read(entry.path())
+            .map_err(|error| format!("cannot read relay heartbeat {node_id}: {error}"))?;
+        let heartbeat = serde_json::from_slice::<RelayHeartbeat>(&contents)
+            .map_err(|error| format!("cannot parse relay heartbeat {node_id}: {error}"))?;
+        if heartbeat.observed_at > 0 {
+            heartbeats.insert(node_id, heartbeat.observed_at);
+        }
+    }
+    Ok(heartbeats)
+}
+
+fn read_reported_heartbeats(path: &Path) -> Result<HashMap<String, u64>, String> {
+    match fs::read(path) {
+        Ok(contents) => serde_json::from_slice(&contents)
+            .map_err(|error| format!("cannot parse heartbeat report state: {error}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
+        Err(error) => Err(format!("cannot read heartbeat report state: {error}")),
+    }
 }
 
 fn remove_stale_documents(directory: &Path, active: &HashSet<String>) -> Result<(), String> {

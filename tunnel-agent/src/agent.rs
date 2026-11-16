@@ -267,12 +267,31 @@ async fn reconcile_online(
     }
 }
 
+async fn send_relay_heartbeat(settings: &AgentSettings, config: &Config) -> Result<(), String> {
+    let Some(source) = config
+        .agent
+        .bundle_seed
+        .as_ref()
+        .map(|seed| seed.source.clone())
+    else {
+        return Ok(());
+    };
+    let node_id_file = settings.node_id_file.clone();
+    tokio::task::spawn_blocking(move || {
+        let node_id = read_secret_file(&node_id_file, "node id")?;
+        seed::ping_relay(&source, &node_id)
+    })
+    .await
+    .map_err(|error| format!("relay heartbeat task failed: {error}"))?
+}
+
 async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Result<(), String> {
     let plan = manifest::compile(&config, &settings.state_dir)?;
     let mut running = start_plan(plan).await?;
     let revision_path = settings.state_dir.join("document-revision");
     let mut active_revision = read_revision(&revision_path)?;
     let mut updates = polling_interval(offline_poll_interval(&config));
+    let mut heartbeat = polling_interval(effective_poll_interval(settings, &config)?);
     let shutdown = runtime::wait_for_shutdown();
     tokio::pin!(shutdown);
     loop {
@@ -287,6 +306,7 @@ async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Resu
                         active_revision = revision;
                         config = next_config;
                         updates = polling_interval(offline_poll_interval(&config));
+                        heartbeat = polling_interval(effective_poll_interval(settings, &config)?);
                     }
                     Ok(None) => {},
                     Err(error) => eprintln!("relay refresh failed; retaining revision={active_revision}: {error}"),
@@ -299,6 +319,11 @@ async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Resu
                     }
                     Ok(_) => {},
                     Err(error) => eprintln!("seed update failed; retaining active bundle: {error}"),
+                }
+            }
+            _ = heartbeat.tick() => {
+                if let Err(error) = send_relay_heartbeat(settings, &config).await {
+                    eprintln!("relay heartbeat failed: {error}");
                 }
             }
         }

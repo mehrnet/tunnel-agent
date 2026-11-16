@@ -5,6 +5,7 @@ use std::{
     net::{SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::Command,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use reqwest::{StatusCode, blocking::Client, redirect::Policy};
@@ -74,6 +75,14 @@ pub(crate) fn fetch_relay_document(source: &str, node_id: &str) -> Result<String
     let source = SeedSource::new(source)?;
     let raw = source.get_bytes(&format!("/v1/relay/{node_id}"), MAX_DOCUMENT_BYTES)?;
     String::from_utf8(raw).map_err(|_| "relay response is not UTF-8".to_owned())
+}
+
+pub(crate) fn ping_relay(source: &str, node_id: &str) -> Result<(), String> {
+    if !valid_node_id(node_id) {
+        return Err("relay node id is invalid".to_owned());
+    }
+    SeedSource::new(source)?.get_bytes(&format!("/v1/ping/{node_id}"), 0)?;
+    Ok(())
 }
 
 pub(crate) fn apply(root: &Path, source: &str, activate: bool) -> Result<SeedResult, String> {
@@ -165,6 +174,7 @@ fn serve_connection(
         value if value.starts_with("/v1/relay/") => {
             serve_relay(&mut stream, value, relay_directory)
         }
+        value if value.starts_with("/v1/ping/") => serve_ping(&mut stream, value, relay_directory),
         _ => serve_blob(&mut stream, path, state),
     }
 }
@@ -185,10 +195,49 @@ fn serve_relay(
     };
     match fs::read(directory.join(format!("{node_id}.json"))) {
         Ok(document) if document.len() as u64 <= MAX_DOCUMENT_BYTES => {
+            record_relay_heartbeat(directory, node_id)?;
             write_response(stream, 200, "application/json", &document)
         }
         _ => write_response(stream, 404, "text/plain", b"not found\n"),
     }
+}
+
+fn serve_ping(
+    stream: &mut TcpStream,
+    path: &str,
+    relay_directory: Option<&Path>,
+) -> Result<(), String> {
+    let Some(node_id) = path
+        .strip_prefix("/v1/ping/")
+        .filter(|value| valid_node_id(value))
+    else {
+        return write_response(stream, 404, "text/plain", b"not found\n");
+    };
+    let Some(directory) = relay_directory else {
+        return write_response(stream, 404, "text/plain", b"not found\n");
+    };
+    if !directory.join(format!("{node_id}.json")).is_file() {
+        return write_response(stream, 404, "text/plain", b"not found\n");
+    }
+    record_relay_heartbeat(directory, node_id)?;
+    write_response(stream, 204, "text/plain", b"")
+}
+
+fn record_relay_heartbeat(relay_directory: &Path, node_id: &str) -> Result<(), String> {
+    let state_directory = relay_directory
+        .parent()
+        .ok_or_else(|| "relay directory has no state parent".to_owned())?
+        .join("relay-heartbeats");
+    fs::create_dir_all(&state_directory)
+        .map_err(|error| format!("cannot create relay heartbeat directory: {error}"))?;
+    let observed_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock is before Unix epoch: {error}"))?
+        .as_secs();
+    crate::release::write_atomic(
+        &state_directory.join(format!("{node_id}.json")),
+        format!(r#"{{"observed_at":{observed_at}}}"#).as_bytes(),
+    )
 }
 
 fn serve_blob(stream: &mut TcpStream, path: &str, state: &ServeState) -> Result<(), String> {

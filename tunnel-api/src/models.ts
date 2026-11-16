@@ -41,6 +41,7 @@ export interface NodeRow {
   node_class: NodeClass;
   address: string | null;
   status: "pending" | "enrolled" | "revoked";
+  last_heartbeat_at: number | null;
 }
 
 export interface GrantRow extends NodeRow {

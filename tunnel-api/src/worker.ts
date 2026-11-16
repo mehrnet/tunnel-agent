@@ -1,6 +1,7 @@
 import { handleBootstrap, handleBundleActivation, handleBundleRelease } from "./bundles";
 import { handleRelayDomesticCapsule } from "./capsules";
 import { handleControlKey } from "./control";
+import { handleHeartbeats } from "./heartbeats";
 import { error, json } from "./http";
 import type { Env } from "./models";
 import { handleEnroll, handleNodeDocument } from "./nodes";
@@ -24,6 +25,8 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext): Pro
   if (domesticCapsule) return handleRelayDomesticCapsule(request, env, domesticCapsule[1], domesticCapsule[2], domesticCapsule[3]);
   const relayDocuments = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/relay-documents$/);
   if (relayDocuments) return handleRelayDocuments(request, env, relayDocuments[1]);
+  const heartbeats = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/heartbeats$/);
+  if (heartbeats) return handleHeartbeats(request, env, heartbeats[1]);
   return error("not found", 404);
 }
 

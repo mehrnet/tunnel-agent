@@ -27,6 +27,24 @@ endpoint only issues state: it does not itself establish a tunnel or connect to
 a domestic node. Current relay envelopes are not encrypted, so relayed
 manifests must not contain inline secret values.
 
+## Domestic relay heartbeats
+
+A domestic node does not call the API. Instead, it sends a loopback-only
+`/v1/ping/<domestic-node-uuid>` request through its selected agent lane. The
+foreign seed receives that request, records the timestamp locally, then reports
+only that timestamp to the API during its regular authenticated refresh:
+
+```text
+POST /api/v1/nodes/<foreign-node-uuid>/heartbeats
+Authorization: Bearer <foreign-node-uuid>.<node-token>
+{"observations":[{"node_id":"<domestic-node-uuid>","observed_at":1730000000}]}
+```
+
+The API accepts an observation only when the authenticated foreign node and the
+domestic node share a cluster. The timestamp is monotonic per domestic node, so
+retries cannot make a stale relay look fresh. Telegram displays this as the
+domestic node's last relay ping; it is not an enrollment event.
+
 Static website, installer, manifests, and bundle chunks are separately served
 from `https://tunnel-files.mehrnet.com` by the assets-only
 `tunnel-files/wrangler.jsonc` deployment.

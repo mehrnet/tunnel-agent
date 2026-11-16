@@ -69,7 +69,9 @@ export async function createClusterForOwner(env: Env, ownerId: string, name: str
 
 export async function nodeByName(env: Env, ownerId: string, name: string): Promise<NodeRow | null> {
   return env.DB.prepare(
-    "SELECT id, name, node_class, address, status FROM nodes WHERE owner_id = ? AND name = ?",
+    `SELECT n.id, n.name, n.node_class, n.address, n.status, h.observed_at AS last_heartbeat_at
+       FROM nodes n LEFT JOIN node_heartbeats h ON h.node_id = n.id
+      WHERE n.owner_id = ? AND n.name = ?`,
   )
     .bind(ownerId, name)
     .first<NodeRow>();
@@ -77,7 +79,9 @@ export async function nodeByName(env: Env, ownerId: string, name: string): Promi
 
 export async function nodeForOwnerById(env: Env, ownerId: string, nodeId: string): Promise<NodeRow | null> {
   return env.DB.prepare(
-    "SELECT id, name, node_class, address, status FROM nodes WHERE owner_id = ? AND id = ?",
+    `SELECT n.id, n.name, n.node_class, n.address, n.status, h.observed_at AS last_heartbeat_at
+       FROM nodes n LEFT JOIN node_heartbeats h ON h.node_id = n.id
+      WHERE n.owner_id = ? AND n.id = ?`,
   ).bind(ownerId, nodeId).first<NodeRow>();
 }
 
@@ -100,7 +104,7 @@ export async function createNodeForOwner(
       "INSERT INTO node_documents (node_id, revision, manifest_json, updated_at) VALUES (?, ?, ?, ?)",
     ).bind(id, 0, manifestJson, createdAt),
   ]);
-  return { id, name, node_class: nodeClass, address, status: "pending" };
+  return { id, name, node_class: nodeClass, address, status: "pending", last_heartbeat_at: null };
 }
 
 export async function attachNodeToCluster(env: Env, clusterId: string, nodeId: string, role: NodeRow["node_class"]): Promise<void> {
@@ -111,16 +115,19 @@ export async function attachNodeToCluster(env: Env, clusterId: string, nodeId: s
 
 export async function nodesForOwner(env: Env, ownerId: string): Promise<NodeRow[]> {
   const rows = await env.DB.prepare(
-    "SELECT id, name, node_class, address, status FROM nodes WHERE owner_id = ? ORDER BY name",
+    `SELECT n.id, n.name, n.node_class, n.address, n.status, h.observed_at AS last_heartbeat_at
+       FROM nodes n LEFT JOIN node_heartbeats h ON h.node_id = n.id
+      WHERE n.owner_id = ? ORDER BY n.name`,
   ).bind(ownerId).all<NodeRow>();
   return rows.results;
 }
 
 export async function nodesForCluster(env: Env, ownerId: string, clusterId: string): Promise<NodeRow[]> {
   const rows = await env.DB.prepare(
-    `SELECT n.id, n.name, n.node_class, n.address, n.status
+    `SELECT n.id, n.name, n.node_class, n.address, n.status, h.observed_at AS last_heartbeat_at
        FROM nodes n JOIN cluster_nodes cn ON cn.node_id = n.id
        JOIN clusters c ON c.id = cn.cluster_id
+       LEFT JOIN node_heartbeats h ON h.node_id = n.id
       WHERE c.owner_id = ? AND c.id = ? ORDER BY n.name`,
   ).bind(ownerId, clusterId).all<NodeRow>();
   return rows.results;
@@ -128,8 +135,9 @@ export async function nodesForCluster(env: Env, ownerId: string, clusterId: stri
 
 export async function unattachedNodesForCluster(env: Env, ownerId: string, clusterId: string): Promise<NodeRow[]> {
   const rows = await env.DB.prepare(
-    `SELECT n.id, n.name, n.node_class, n.address, n.status
+    `SELECT n.id, n.name, n.node_class, n.address, n.status, h.observed_at AS last_heartbeat_at
        FROM nodes n JOIN clusters c ON c.owner_id = n.owner_id
+       LEFT JOIN node_heartbeats h ON h.node_id = n.id
       WHERE c.owner_id = ? AND c.id = ?
         AND NOT EXISTS (
           SELECT 1 FROM cluster_nodes cn WHERE cn.cluster_id = c.id AND cn.node_id = n.id
@@ -185,7 +193,9 @@ export async function setTelegramMenu(
 
 export async function nodeById(env: Env, nodeId: string): Promise<NodeRow | null> {
   return env.DB.prepare(
-    "SELECT id, name, node_class, address, status FROM nodes WHERE id = ?",
+    `SELECT n.id, n.name, n.node_class, n.address, n.status, h.observed_at AS last_heartbeat_at
+       FROM nodes n LEFT JOIN node_heartbeats h ON h.node_id = n.id
+      WHERE n.id = ?`,
   ).bind(nodeId).first<NodeRow>();
 }
 
@@ -195,9 +205,10 @@ export async function requireGrant(env: Env, rawGrant: unknown): Promise<GrantRo
   const hash = await sha256(grant.secret);
   const row = await env.DB.prepare(
     `SELECT g.id AS grant_id, g.secret_hash, g.expires_at, g.consumed_at,
-            n.id, n.name, n.node_class, n.address, n.status
+            n.id, n.name, n.node_class, n.address, n.status, h.observed_at AS last_heartbeat_at
        FROM enrollment_grants g
        JOIN nodes n ON n.id = g.node_id
+       LEFT JOIN node_heartbeats h ON h.node_id = n.id
       WHERE g.id = ?`,
   )
     .bind(grant.id)
@@ -237,6 +248,45 @@ export async function foreignClusterMember(env: Env, nodeId: string, clusterId: 
     "SELECT 1 AS present FROM cluster_nodes WHERE node_id = ? AND cluster_id = ? AND role = 'foreign'",
   ).bind(nodeId, clusterId).first<{ present: number }>();
   return row?.present === 1;
+}
+
+export async function foreignCanObserveDomestic(
+  env: Env,
+  foreignNodeId: string,
+  domesticNodeId: string,
+): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT 1 AS present
+       FROM cluster_nodes foreign_membership
+       JOIN cluster_nodes domestic_membership
+         ON domestic_membership.cluster_id = foreign_membership.cluster_id
+       JOIN nodes domestic_node ON domestic_node.id = domestic_membership.node_id
+      WHERE foreign_membership.node_id = ?
+        AND foreign_membership.role = 'foreign'
+        AND domestic_membership.node_id = ?
+        AND domestic_membership.role = 'domestic'
+        AND domestic_node.node_class = 'domestic'
+        AND domestic_node.status != 'revoked'
+      LIMIT 1`,
+  ).bind(foreignNodeId, domesticNodeId).first<{ present: number }>();
+  return row?.present === 1;
+}
+
+export async function recordNodeHeartbeat(
+  env: Env,
+  domesticNodeId: string,
+  foreignNodeId: string,
+  observedAt: number,
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO node_heartbeats (node_id, observer_node_id, observed_at, recorded_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(node_id) DO UPDATE SET
+       observer_node_id = excluded.observer_node_id,
+       observed_at = excluded.observed_at,
+       recorded_at = excluded.recorded_at
+     WHERE excluded.observed_at > node_heartbeats.observed_at`,
+  ).bind(domesticNodeId, foreignNodeId, observedAt, now()).run();
 }
 
 export async function relayDocumentsForForeignNode(env: Env, relayNodeId: string): Promise<RelayDocumentRow[]> {

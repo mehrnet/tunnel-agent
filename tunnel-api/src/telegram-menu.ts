@@ -106,6 +106,7 @@ async function nodeMenu(env: Env, owner: OwnerRow, view: Extract<MenuView, { kin
     `🖥 سرور: ${node.name}`,
     `🧩 نوع: ${menuNodeClassLabel(node.node_class)}`,
     `📡 وضعیت: ${nodeStatusLabel(node)}`,
+    heartbeatLabel(node),
     `📍 نشانی: ${node.address ?? "ثبت نشده"}`,
     `🧾 نسخه وضعیت مطلوب: ${document?.revision ?? "ثبت نشده"}`,
     view.notice,
@@ -138,7 +139,7 @@ function button(text: string, callbackData: string) {
 }
 
 function nodeSummary(node: NodeRow): string {
-  return `• ${node.name}: ${menuNodeClassLabel(node.node_class)}، ${nodeStatusLabel(node)}`;
+  return `• ${node.name}: ${menuNodeClassLabel(node.node_class)}، ${nodeStatusLabel(node)}${heartbeatAge(node)}`;
 }
 
 function menuNodeClassLabel(nodeClass: NodeRow["node_class"]): string {
@@ -148,7 +149,29 @@ function menuNodeClassLabel(nodeClass: NodeRow["node_class"]): string {
 function nodeStatusLabel(node: NodeRow): string {
   if (node.status === "enrolled") return "فعال";
   if (node.status === "revoked") return "لغوشده";
-  return node.node_class === "domestic" ? "منتظر تأیید رله" : "در انتظار نصب";
+  if (node.node_class !== "domestic") return "در انتظار نصب";
+  if (node.last_heartbeat_at === null) return "منتظر نخستین پینگ رله";
+  return now() - node.last_heartbeat_at <= 5 * 60 ? "فعال از مسیر رله" : "پینگ رله قدیمی";
+}
+
+function heartbeatLabel(node: NodeRow): string | undefined {
+  if (node.node_class !== "domestic") return undefined;
+  if (node.last_heartbeat_at === null) return "🫀 آخرین پینگ رله: هنوز دریافت نشده";
+  return `🫀 آخرین پینگ رله: ${relativeAge(node.last_heartbeat_at)} پیش`;
+}
+
+function heartbeatAge(node: NodeRow): string {
+  return node.node_class === "domestic" && node.last_heartbeat_at !== null
+    ? `، پینگ ${relativeAge(node.last_heartbeat_at)} پیش`
+    : "";
+}
+
+function relativeAge(timestamp: number): string {
+  const seconds = Math.max(0, now() - timestamp);
+  if (seconds < 60) return "کمتر از یک دقیقه";
+  if (seconds < 60 * 60) return `${Math.floor(seconds / 60)} دقیقه`;
+  if (seconds < 24 * 60 * 60) return `${Math.floor(seconds / (60 * 60))} ساعت`;
+  return `${Math.floor(seconds / (24 * 60 * 60))} روز`;
 }
 
 function recentMenu(session: TelegramSessionRow): boolean {
