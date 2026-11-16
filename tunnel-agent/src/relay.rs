@@ -30,7 +30,16 @@ struct Payload {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RelayState {
+    version: u8,
     cluster_id: String,
+    relays: Vec<RelayEndpoint>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RelayEndpoint {
+    host: String,
+    port: u16,
 }
 
 pub(crate) struct VerifiedDocument {
@@ -46,6 +55,9 @@ pub(crate) fn verify_for_local_node(
     node_id_path: &Path,
 ) -> Result<VerifiedDocument, String> {
     let state: RelayState = read_json(relay_state_path, "relay state")?;
+    if !valid_relay_state(&state) {
+        return Err("relay state has an invalid version, cluster id, or endpoint".to_owned());
+    }
     let node_id = read_text(node_id_path, "node id")?;
     verify_with_key(
         raw,
@@ -53,6 +65,25 @@ pub(crate) fn verify_for_local_node(
         &state.cluster_id,
         &node_id,
     )
+}
+
+fn valid_relay_state(state: &RelayState) -> bool {
+    state.version == 1
+        && valid_uuid(&state.cluster_id)
+        && !state.relays.is_empty()
+        && state.relays.len() <= 16
+        && state
+            .relays
+            .iter()
+            .all(|relay| relay.port != 0 && valid_relay_host(&relay.host))
+}
+
+fn valid_relay_host(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 253
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':'))
 }
 
 fn verify_with_key(
@@ -171,5 +202,14 @@ mod tests {
         assert!(
             verify_with_key(&envelope, &signing_key.verifying_key(), CLUSTER_ID, NODE_ID).is_err()
         );
+    }
+
+    #[test]
+    fn accepts_the_relay_state_written_by_a_domestic_capsule() {
+        let state: RelayState = serde_json::from_str(
+            r#"{"version":1,"cluster_id":"4cd57b8f-8f97-4f80-8791-90bba10190d0","relays":[{"host":"138.199.236.120","port":42001}]}"#,
+        )
+        .expect("relay state parses");
+        assert!(valid_relay_state(&state));
     }
 }

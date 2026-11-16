@@ -111,7 +111,13 @@ cpanel_login() {
     -D "$headers" -c "$cpanel_cookie" \
     --data-urlencode "user=$username" --data-urlencode "pass=$password" \
     --data-urlencode 'login_theme=cpanel' "${control_panel%/}/login/" -o /dev/null || return 1
-  session=$(sed -n 's/^Location: /\(cpsess[^/]*\).*/\1/pI' "$headers" | tail -n 1)
+  session=$(awk '
+    BEGIN { IGNORECASE = 1 }
+    /^Location:[[:space:]]*/ {
+      if (match($0, /cpsess[[:alnum:]]+/)) value = substr($0, RSTART, RLENGTH)
+    }
+    END { print value }
+  ' "$headers")
   [[ $session =~ ^cpsess[0-9A-Za-z]+$ ]] || return 1
   cpanel_base="${control_panel%/}/$session"
 }
