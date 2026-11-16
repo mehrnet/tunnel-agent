@@ -54,14 +54,13 @@ async function applyCallback(
   if (extra !== undefined) throw new Error("Invalid menu action.");
   if (action === "home") return showHome(env, owner, chatId);
   if (action === "help") return showPrompt(env, owner, chatId, "Help", "Use the buttons to browse clusters and servers. When prompted, send the requested name, server details, or manifest file.");
-  if (action === "clusters") return showView(env, owner, chatId, { kind: "clusters" });
+  if (action === "clusters") return showHome(env, owner, chatId);
   if (action === "nodes") return showView(env, owner, chatId, { kind: "nodes" });
   if (action === "cluster-add") return setPrompt(env, owner, chatId, "cluster-create", {}, "New cluster", "Send the lowercase cluster name.");
   if (action === "cluster" && validId(value)) return showView(env, owner, chatId, { kind: "cluster", clusterId: value });
   if (action === "node" && validId(value)) return showView(env, owner, chatId, { kind: "node", nodeId: value });
-  if (action === "add") return setServerClass(env, owner, chatId, value);
-  if (action === "class" && validNodeClass(value)) return chooseCluster(env, owner, chatId, session, value);
-  if (action === "choose" && validId(value)) return selectCluster(env, owner, chatId, session, value);
+  if (action === "newd" && validId(value)) return setServerPrompt(env, owner, chatId, value, "domestic");
+  if (action === "newf" && validId(value)) return setServerPrompt(env, owner, chatId, value, "foreign");
   if (action === "attach" && validId(value)) return showAttach(env, owner, chatId, value);
   if (action === "attach-node" && validId(value)) return attachExistingNode(env, owner, chatId, session, value);
   if (action === "install" && validId(value)) return issueInstall(env, owner, chatId, session, value);
@@ -89,21 +88,7 @@ async function setPrompt(env: Env, owner: OwnerRow, chatId: number, mode: string
   await presentMenu(env, owner, chatId, session, { kind: "prompt", title, detail });
 }
 
-async function setServerClass(env: Env, owner: OwnerRow, chatId: number, clusterId?: string): Promise<void> {
-  if (clusterId && !validId(clusterId)) throw new Error("Invalid cluster.");
-  const session = await setTelegramSessionState(env, owner.id, chatId, "server-class", { clusterId });
-  await presentMenu(env, owner, chatId, session, { kind: "class" });
-}
-
-async function chooseCluster(env: Env, owner: OwnerRow, chatId: number, session: TelegramSessionRow, nodeClass: NodeClass): Promise<void> {
-  const clusterId = payloadId(session, "clusterId", false);
-  if (clusterId) return setPrompt(env, owner, chatId, "server-create", { clusterId, nodeClass }, `New ${nodeClass} server`, "Send `server-name [address]`.");
-  const active = await setTelegramSessionState(env, owner.id, chatId, "server-class", { nodeClass });
-  await presentMenu(env, owner, chatId, active, { kind: "cluster-choice", nodeClass });
-}
-
-async function selectCluster(env: Env, owner: OwnerRow, chatId: number, session: TelegramSessionRow, clusterId: string): Promise<void> {
-  const nodeClass = payloadNodeClass(session);
+async function setServerPrompt(env: Env, owner: OwnerRow, chatId: number, clusterId: string, nodeClass: NodeClass): Promise<void> {
   if (!await clusterById(env, owner.id, clusterId)) throw new Error("That cluster no longer exists.");
   await setPrompt(env, owner, chatId, "server-create", { clusterId, nodeClass }, `New ${nodeClass} server`, "Send `server-name [address]`.");
 }
