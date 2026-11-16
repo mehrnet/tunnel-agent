@@ -105,7 +105,7 @@ async function nodeMenu(env: Env, owner: OwnerRow, view: Extract<MenuView, { kin
   const text = [
     `🖥 سرور: ${node.name}`,
     `🧩 نوع: ${menuNodeClassLabel(node.node_class)}`,
-    `📡 وضعیت: ${nodeStatusLabel(node.status)}`,
+    `📡 وضعیت: ${nodeStatusLabel(node)}`,
     `📍 نشانی: ${node.address ?? "ثبت نشده"}`,
     `🧾 نسخه وضعیت مطلوب: ${document?.revision ?? "ثبت نشده"}`,
     view.notice,
@@ -138,17 +138,17 @@ function button(text: string, callbackData: string) {
 }
 
 function nodeSummary(node: NodeRow): string {
-  return `• ${node.name}: ${menuNodeClassLabel(node.node_class)}، ${nodeStatusLabel(node.status)}`;
+  return `• ${node.name}: ${menuNodeClassLabel(node.node_class)}، ${nodeStatusLabel(node)}`;
 }
 
 function menuNodeClassLabel(nodeClass: NodeRow["node_class"]): string {
   return nodeClass === "domestic" ? "داخلی" : "خارجی";
 }
 
-function nodeStatusLabel(status: NodeRow["status"]): string {
-  if (status === "enrolled") return "فعال";
-  if (status === "revoked") return "لغوشده";
-  return "در انتظار نصب";
+function nodeStatusLabel(node: NodeRow): string {
+  if (node.status === "enrolled") return "فعال";
+  if (node.status === "revoked") return "لغوشده";
+  return node.node_class === "domestic" ? "منتظر تأیید رله" : "در انتظار نصب";
 }
 
 function recentMenu(session: TelegramSessionRow): boolean {
