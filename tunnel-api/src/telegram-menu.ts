@@ -11,7 +11,7 @@ export type MenuView =
   | { kind: "home"; notice?: string }
   | { kind: "cluster"; clusterId: string; notice?: string }
   | { kind: "nodes"; notice?: string }
-  | { kind: "node"; nodeId: string; notice?: string }
+  | { kind: "node"; nodeId: string; returnClusterId?: string; notice?: string }
   | { kind: "attach"; clusterId: string }
   | { kind: "prompt"; title: string; detail: string };
 
@@ -22,8 +22,7 @@ export async function presentMenu(
   session: TelegramSessionRow,
   view: MenuView,
 ): Promise<void> {
-  const menu = await buildMenu(env, owner, view);
-  if (menu.text.length > 4096) throw new Error("متن منو از حد مجاز تلگرام طولانی‌تر است.");
+  const menu = await buildCheckedMenu(env, owner, view);
   if (recentMenu(session)) {
     const edited = await editMenu(env, chatId, session.menu_message_id!, menu);
     if (edited) return;
@@ -31,6 +30,23 @@ export async function presentMenu(
   if (session.menu_message_id !== null) await deleteMenu(env, chatId, session.menu_message_id);
   const sent = await sendMenu(env, chatId, menu);
   await setTelegramMenu(env, owner.id, chatId, sent.message_id, sent.date);
+}
+
+export async function sendFreshMenu(
+  env: Env,
+  owner: OwnerRow,
+  chatId: number,
+  view: MenuView,
+): Promise<void> {
+  const menu = await buildCheckedMenu(env, owner, view);
+  const sent = await sendMenu(env, chatId, menu);
+  await setTelegramMenu(env, owner.id, chatId, sent.message_id, sent.date);
+}
+
+async function buildCheckedMenu(env: Env, owner: OwnerRow, view: MenuView): Promise<TelegramMenu> {
+  const menu = await buildMenu(env, owner, view);
+  if (menu.text.length > 4096) throw new Error("متن منو از حد مجاز تلگرام طولانی‌تر است.");
+  return menu;
 }
 
 async function buildMenu(env: Env, owner: OwnerRow, view: MenuView): Promise<TelegramMenu> {
@@ -94,9 +110,10 @@ async function nodeMenu(env: Env, owner: OwnerRow, view: Extract<MenuView, { kin
     `🧾 نسخه وضعیت مطلوب: ${document?.revision ?? "ثبت نشده"}`,
     view.notice,
   ].filter(Boolean).join("\n");
+  const back = view.returnClusterId ? `cluster:${view.returnClusterId}` : "nodes";
   return {
     text,
-    keyboard: [[button("📥 دستور نصب", `install:${node.id}`), button("📝 اعمال تنظیمات", `manifest:${node.id}`)], [button("⬅️ بازگشت", "nodes")]],
+    keyboard: [[button("📥 دستور نصب", `install:${node.id}`), button("📝 اعمال تنظیمات", `manifest:${node.id}`)], [button("⬅️ بازگشت", back)]],
   };
 }
 
