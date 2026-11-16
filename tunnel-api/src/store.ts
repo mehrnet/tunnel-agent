@@ -1,4 +1,4 @@
-import type { Architecture, AuditReferences, BundleRow, ClusterRow, DocumentRow, Env, GrantRow, NodeRow, OwnerRow, RelayDocumentRow, RelayRow } from "./models";
+import type { Architecture, AuditReferences, BundleRow, ClusterRow, DocumentRow, Env, GrantRow, NodeRow, OwnerRow, RelayDocumentRow, RelayRow, TelegramSessionRow } from "./models";
 import { now, parseGrant, randomToken, sha256 } from "./validation";
 
 export async function audit(
@@ -46,12 +46,141 @@ export async function clusterByName(env: Env, ownerId: string, name: string): Pr
     .first<ClusterRow>();
 }
 
+export async function clusterById(env: Env, ownerId: string, clusterId: string): Promise<ClusterRow | null> {
+  return env.DB.prepare("SELECT id, name FROM clusters WHERE owner_id = ? AND id = ?")
+    .bind(ownerId, clusterId)
+    .first<ClusterRow>();
+}
+
+export async function clustersForOwner(env: Env, ownerId: string): Promise<ClusterRow[]> {
+  const rows = await env.DB.prepare("SELECT id, name FROM clusters WHERE owner_id = ? ORDER BY name")
+    .bind(ownerId)
+    .all<ClusterRow>();
+  return rows.results;
+}
+
+export async function createClusterForOwner(env: Env, ownerId: string, name: string): Promise<ClusterRow> {
+  const id = crypto.randomUUID();
+  await env.DB.prepare("INSERT INTO clusters (id, owner_id, name, created_at) VALUES (?, ?, ?, ?)")
+    .bind(id, ownerId, name, now())
+    .run();
+  return { id, name };
+}
+
 export async function nodeByName(env: Env, ownerId: string, name: string): Promise<NodeRow | null> {
   return env.DB.prepare(
     "SELECT id, name, node_class, address, status FROM nodes WHERE owner_id = ? AND name = ?",
   )
     .bind(ownerId, name)
     .first<NodeRow>();
+}
+
+export async function nodeForOwnerById(env: Env, ownerId: string, nodeId: string): Promise<NodeRow | null> {
+  return env.DB.prepare(
+    "SELECT id, name, node_class, address, status FROM nodes WHERE owner_id = ? AND id = ?",
+  ).bind(ownerId, nodeId).first<NodeRow>();
+}
+
+export async function createNodeForOwner(
+  env: Env,
+  ownerId: string,
+  name: string,
+  nodeClass: NodeRow["node_class"],
+  address: string | null,
+  manifestJson: string,
+): Promise<NodeRow> {
+  const id = crypto.randomUUID();
+  const createdAt = now();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO nodes (id, owner_id, name, node_class, address, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).bind(id, ownerId, name, nodeClass, address, createdAt),
+    env.DB.prepare(
+      "INSERT INTO node_documents (node_id, revision, manifest_json, updated_at) VALUES (?, ?, ?, ?)",
+    ).bind(id, 0, manifestJson, createdAt),
+  ]);
+  return { id, name, node_class: nodeClass, address, status: "pending" };
+}
+
+export async function attachNodeToCluster(env: Env, clusterId: string, nodeId: string, role: NodeRow["node_class"]): Promise<void> {
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO cluster_nodes (cluster_id, node_id, role, created_at) VALUES (?, ?, ?, ?)",
+  ).bind(clusterId, nodeId, role, now()).run();
+}
+
+export async function nodesForOwner(env: Env, ownerId: string): Promise<NodeRow[]> {
+  const rows = await env.DB.prepare(
+    "SELECT id, name, node_class, address, status FROM nodes WHERE owner_id = ? ORDER BY name",
+  ).bind(ownerId).all<NodeRow>();
+  return rows.results;
+}
+
+export async function nodesForCluster(env: Env, ownerId: string, clusterId: string): Promise<NodeRow[]> {
+  const rows = await env.DB.prepare(
+    `SELECT n.id, n.name, n.node_class, n.address, n.status
+       FROM nodes n JOIN cluster_nodes cn ON cn.node_id = n.id
+       JOIN clusters c ON c.id = cn.cluster_id
+      WHERE c.owner_id = ? AND c.id = ? ORDER BY n.name`,
+  ).bind(ownerId, clusterId).all<NodeRow>();
+  return rows.results;
+}
+
+export async function unattachedNodesForCluster(env: Env, ownerId: string, clusterId: string): Promise<NodeRow[]> {
+  const rows = await env.DB.prepare(
+    `SELECT n.id, n.name, n.node_class, n.address, n.status
+       FROM nodes n JOIN clusters c ON c.owner_id = n.owner_id
+      WHERE c.owner_id = ? AND c.id = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM cluster_nodes cn WHERE cn.cluster_id = c.id AND cn.node_id = n.id
+        ) ORDER BY n.name`,
+  ).bind(ownerId, clusterId).all<NodeRow>();
+  return rows.results;
+}
+
+export async function clusterMembershipCount(env: Env, nodeId: string): Promise<number> {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM cluster_nodes WHERE node_id = ?")
+    .bind(nodeId)
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
+export async function telegramSession(env: Env, ownerId: string, chatId: number): Promise<TelegramSessionRow | null> {
+  return env.DB.prepare(
+    `SELECT owner_id, chat_id, mode, payload_json, menu_message_id, menu_created_at, updated_at
+       FROM telegram_sessions WHERE owner_id = ? AND chat_id = ?`,
+  ).bind(ownerId, String(chatId)).first<TelegramSessionRow>();
+}
+
+export async function setTelegramSessionState(
+  env: Env,
+  ownerId: string,
+  chatId: number,
+  mode: string,
+  payload: unknown,
+): Promise<TelegramSessionRow> {
+  await env.DB.prepare(
+    `INSERT INTO telegram_sessions (owner_id, chat_id, mode, payload_json, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(owner_id, chat_id) DO UPDATE SET
+       mode = excluded.mode, payload_json = excluded.payload_json, updated_at = excluded.updated_at`,
+  ).bind(ownerId, String(chatId), mode, JSON.stringify(payload), now()).run();
+  const session = await telegramSession(env, ownerId, chatId);
+  if (!session) throw new Error("cannot read Telegram session");
+  return session;
+}
+
+export async function setTelegramMenu(
+  env: Env,
+  ownerId: string,
+  chatId: number,
+  messageId: number,
+  createdAt: number,
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE telegram_sessions SET menu_message_id = ?, menu_created_at = ?, updated_at = ?
+      WHERE owner_id = ? AND chat_id = ?`,
+  ).bind(messageId, createdAt, now(), ownerId, String(chatId)).run();
 }
 
 export async function nodeById(env: Env, nodeId: string): Promise<NodeRow | null> {

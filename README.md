@@ -121,28 +121,25 @@ Full role and configuration details are in [docs/CONTRACTS.md](docs/CONTRACTS.md
 `@TunnelOwnersBot` is the owner-facing control surface:
 
 ```text
-/cluster_add w4r-canary
-/server_add w4r-canary domestic ir-6 2.144.4.192
-/server_add w4r-canary foreign de-1 138.199.236.120
-/install ir-6
+/start
 ```
 
-A server can be attached to multiple clusters, but it must belong to at least
-one before `/install` can create a single-use enrollment grant. The API stores
-membership independently from the node record so the compiler can reject every
-host-level listener collision across all of that node's clusters.
+The bot presents inline menus for clusters and servers. Adding a cluster or
+server opens a short text prompt, so no slash command syntax is required. A
+server can be attached to multiple clusters, but it must belong to at least one
+before its **Installation command** button can create a single-use enrollment
+grant. The API stores membership independently from the node record so the
+compiler can reject every host-level listener collision across all of that
+node's clusters. Menu pages are edited in place for ten minutes; after that
+the old page is deleted and replaced with a new one.
 
 The bot token and webhook secret are Cloudflare Worker secrets. Do not place
 either in `wrangler.jsonc`, release assets, or Git history.
 
 ### Desired State Publishing
 
-Attach a UTF-8 `.json` v3 manifest to a Telegram message and use this as its
-caption (or as the message text when the client supports an attachment):
-
-```text
-/manifest_apply ir-6
-```
+Select **Servers**, select the server, choose **Apply manifest**, then attach
+the UTF-8 `.json` v3 manifest when prompted.
 
 The Worker confirms ownership, enforces the node's `domestic` or `foreign`
 scope, requires the fixed `/opt/tunnel-agent/current` bundle root, admits only

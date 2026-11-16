@@ -35,11 +35,12 @@ or peer seeding before it could apply an update.
   bootstrap node scope or bundle root, validates a new revision before stopping
   the active plan, and retains the last working plan on fetch or validation
   failure.
-- Owners publish a document through the Telegram bot by attaching a v3 JSON
-  file with `/manifest_apply <server>`. The Worker requires the target node's
-  scope and bundle root, allows only known typed contracts, rejects inline
-  credential fields and PEM private keys, and atomically advances the revision.
-  This is an early safety boundary, not a replacement for the Rust compiler.
+- Owners publish a document through the Telegram bot's **Servers** menu. After
+  selecting a server and **Apply manifest**, they attach a v3 JSON file. The
+  Worker requires the target node's scope and bundle root, allows only known
+  typed contracts, rejects inline credential fields and PEM private keys, and
+  atomically advances the revision. This is an early safety boundary, not a
+  replacement for the Rust compiler.
 
 ## Agent Control Lanes
 

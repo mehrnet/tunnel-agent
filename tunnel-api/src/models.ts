@@ -86,19 +86,50 @@ export interface BundleActivation {
 
 export interface TelegramUpdate {
   update_id: number;
-  message?: {
-    chat: { id: number };
-    from?: { id: number; username?: string };
-    text?: string;
-    caption?: string;
-    document?: TelegramDocument;
-  };
+  message?: TelegramMessage;
+  callback_query?: TelegramCallbackQuery;
+}
+
+export interface TelegramUser {
+  id: number;
+  username?: string;
+}
+
+export interface TelegramChat {
+  id: number;
+}
+
+export interface TelegramMessage {
+  message_id: number;
+  date: number;
+  chat: TelegramChat;
+  from?: TelegramUser;
+  text?: string;
+  caption?: string;
+  document?: TelegramDocument;
+}
+
+export interface TelegramCallbackQuery {
+  id: string;
+  from: TelegramUser;
+  data?: string;
+  message?: TelegramMessage;
 }
 
 export interface TelegramDocument {
   file_id: string;
   file_name?: string;
   file_size?: number;
+}
+
+export interface TelegramSessionRow {
+  owner_id: string;
+  chat_id: string;
+  mode: string;
+  payload_json: string;
+  menu_message_id: number | null;
+  menu_created_at: number | null;
+  updated_at: number;
 }
 
 export interface AuditReferences {
