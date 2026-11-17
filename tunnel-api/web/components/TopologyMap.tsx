@@ -25,7 +25,7 @@ function NodeCard(props: { node: ClusterNode; selected: boolean; onSelect: () =>
   const telemetry = () => props.node.telemetry;
   const classLabel = () => props.node.node_class === "foreign" ? "بانک خارجی" : "بانک داخلی";
   return (
-    <button class="map-node" classList={{ "map-node--selected": props.selected }} type="button" onClick={() => props.onSelect()}>
+    <button class="map-node" classList={{ "map-node--selected": props.selected }} type="button" aria-pressed={props.selected} onClick={() => props.onSelect()}>
       <span class="map-node__topline"><span>{classLabel()}</span><b>{nodeStatus[props.node.status]}</b></span>
       <strong>{props.node.name}</strong>
       <code>{props.node.address ?? "نشانی ثبت نشده"}</code>
@@ -46,10 +46,13 @@ function NodeCard(props: { node: ClusterNode; selected: boolean; onSelect: () =>
 
 function Route(props: { lane: TunnelLane; sourceY: number; peerY: number; labelY: number; selected: boolean; onSelect: () => void }) {
   const keySelect = (event: KeyboardEvent) => {
-    if (event.key === "Enter" || event.key === " ") props.onSelect();
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      props.onSelect();
+    }
   };
   return (
-    <g class={laneClass(props.lane, props.selected)} role="button" tabindex="0" aria-label={`مسیر ${props.lane.transport}، ${laneStatus[props.lane.state]}`} onClick={() => props.onSelect()} onKeyDown={keySelect}>
+    <g class={laneClass(props.lane, props.selected)} role="button" tabindex="0" aria-pressed={props.selected} aria-label={`مسیر ${props.lane.transport}، ${laneStatus[props.lane.state]}`} onClick={() => props.onSelect()} onKeyDown={keySelect}>
       <line class="route-line__hit" x1="232" y1={props.sourceY} x2="768" y2={props.peerY} />
       <line class="route-line__track" x1="232" y1={props.sourceY} x2="768" y2={props.peerY} marker-end={`url(#arrow-${props.lane.state})`} />
       <text class="route-line__label" x="500" y={props.labelY} text-anchor="middle">{props.lane.transport} · {laneStatus[props.lane.state]}</text>
@@ -60,7 +63,7 @@ function Route(props: { lane: TunnelLane; sourceY: number; peerY: number; labelY
 function RouteRail(props: { lane: TunnelLane; source: ClusterNode | undefined; peer: ClusterNode | undefined; selected: boolean; onSelect: () => void }) {
   const sourceName = () => props.source?.name ?? "گره نامشخص";
   const peerName = () => props.peer?.name ?? "گره نامشخص";
-  return <button class={`route-rail route-rail--${props.lane.state}`} classList={{ "route-rail--selected": props.selected }} type="button" onClick={() => props.onSelect()}>
+  return <button class={`route-rail route-rail--${props.lane.state}`} classList={{ "route-rail--selected": props.selected }} type="button" aria-pressed={props.selected} onClick={() => props.onSelect()}>
     <span class="route-rail__endpoints" dir="ltr"><b>{sourceName()}</b><i aria-hidden="true">→</i><b>{peerName()}</b></span>
     <span class="route-rail__meta"><small>{props.lane.transport} · {laneStatus[props.lane.state]}</small><strong>{formatProbe(props.lane.probe_ms)}</strong></span>
   </button>;
@@ -78,7 +81,7 @@ export function TopologyMap(props: TopologyMapProps) {
     <section class="topology-panel" aria-labelledby="topology-title">
       <div class="panel-heading">
         <div><p class="section-label">نقشهٔ جریان</p><h2 id="topology-title">توپولوژی و وضعیت مسیرها</h2></div>
-        <span class="direction-note">خارج <i aria-hidden="true">←</i> داخل</span>
+        <div class="topology-summary"><span><b dir="ltr">{foreign().length}</b> خارج</span><span><b dir="ltr">{domestic().length}</b> داخل</span><span class="direction-note">خارج <i aria-hidden="true">←</i> داخل</span></div>
       </div>
       <div class="topology-viewport">
         <div class="topology-canvas" style={{ height: `${mapHeight()}px` }}>

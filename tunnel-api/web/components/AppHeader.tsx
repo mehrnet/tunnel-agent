@@ -1,8 +1,10 @@
+import type { ClusterResponse } from "../data/types";
+import { formatMoment } from "../lib/format";
 import type { TelegramContext } from "../platform/telegram";
 
 interface AppHeaderProps {
   context: TelegramContext;
-  generatedAt: number | undefined;
+  cluster: ClusterResponse | undefined;
   loading: boolean;
   preview: boolean;
   refreshable: boolean;
@@ -16,18 +18,19 @@ export function AppHeader(props: AppHeaderProps) {
   };
   return (
     <header class="ops-header">
-      <div class="ops-header__identity">
-        <span class="ops-header__mark" aria-hidden="true">۰۱</span>
+      <div class="ops-header__title">
         <div>
-          <p class="eyebrow">TUNNEL / OBSERVATORY</p>
-          <h1>مرکز مشاهدهٔ تونل</h1>
+          <p class="eyebrow">TUNNEL / OBSERVATORY / ROUTE MAP</p>
+          <h1>{props.cluster?.cluster.name ?? "مرکز مشاهدهٔ تونل"}</h1>
+          <p class="ops-header__breadcrumb">عملیات خوشه <span aria-hidden="true">/</span> تله‌متری مسیر</p>
         </div>
       </div>
       <div class="ops-header__controls">
-        <div>
-          <strong>{source()}</strong>
-          <span>{props.generatedAt ? "نقشه بر پایهٔ آخرین گزارش عامل" : "در انتظار گزارش عامل"}</span>
+        <div class="ops-header__readout">
+          <span class="ops-header__signal" classList={{ "ops-header__signal--live": props.context.source === "telegram" || props.preview }}><i aria-hidden="true" />{source()}</span>
+          <span>{props.cluster ? "نقشه بر پایهٔ آخرین گزارش عامل" : "در انتظار گزارش عامل"}</span>
         </div>
+        <div class="ops-header__generated"><span>برداشت</span><strong dir="ltr">{props.cluster ? formatMoment(props.cluster.generated_at) : "--:--"}</strong></div>
         <button class="refresh-button" type="button" onClick={() => props.onRefresh()} disabled={props.loading || !props.refreshable}>
           {props.loading ? "در حال خواندن" : "بازخوانی"}
         </button>

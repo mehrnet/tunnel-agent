@@ -1,8 +1,8 @@
-import { Match, Show, Switch, createSignal, onMount } from "solid-js";
+import { Match, Switch, createSignal, onMount } from "solid-js";
 import { fetchCluster, fetchClusters } from "./api/client";
 import { AppHeader } from "./components/AppHeader";
-import { ClusterSelector } from "./components/ClusterSelector";
 import { InspectorPanel } from "./components/InspectorPanel";
+import { OperationsRail } from "./components/OperationsRail";
 import { StatePanel } from "./components/StatePanel";
 import { TopologyMap } from "./components/TopologyMap";
 import { TriagePanel } from "./components/TriagePanel";
@@ -79,17 +79,19 @@ export function App() {
   onMount(() => { if (context.source === "telegram") void loadOwnedClusters(); });
   return (
     <main class="app-shell" dir="rtl" data-theme={context.colorScheme}>
-      <AppHeader context={context} generatedAt={cluster()?.generated_at} loading={phase() === "loading"} preview={preview} refreshable={preview || context.source === "telegram"} onRefresh={refresh} />
-      <Show when={preview || context.source === "telegram"}>
-        <ClusterSelector clusters={clusters()} selectedId={selectedId()} loading={phase() === "loading"} source={context.source} onSelect={chooseCluster} />
-      </Show>
-      <Switch>
-        <Match when={phase() === "telegram"}><StatePanel state="telegram" /></Match>
-        <Match when={phase() === "error"}><StatePanel state="error" onRetry={refresh} /></Match>
-        <Match when={phase() === "empty"}><StatePanel state="empty" /></Match>
-        <Match when={phase() === "loading" && !cluster()}><StatePanel state="loading" /></Match>
-        <Match when={cluster()}>{(snapshot) => <Dashboard cluster={snapshot()} selection={selection()} onNodeSelect={(id) => setSelection({ kind: "node", id })} onLaneSelect={(id) => setSelection({ kind: "lane", id })} />}</Match>
-      </Switch>
+      <OperationsRail cluster={cluster()} clusters={clusters()} selectedId={selectedId()} loading={phase() === "loading"} source={context.source} preview={preview} selectable={preview || context.source === "telegram"} onSelect={chooseCluster} />
+      <div class="app-workspace">
+        <AppHeader context={context} cluster={cluster()} loading={phase() === "loading"} preview={preview} refreshable={preview || context.source === "telegram"} onRefresh={refresh} />
+        <div class="app-workspace__content">
+          <Switch>
+            <Match when={phase() === "telegram"}><StatePanel state="telegram" /></Match>
+            <Match when={phase() === "error"}><StatePanel state="error" onRetry={refresh} /></Match>
+            <Match when={phase() === "empty"}><StatePanel state="empty" /></Match>
+            <Match when={phase() === "loading" && !cluster()}><StatePanel state="loading" /></Match>
+            <Match when={cluster()}>{(snapshot) => <Dashboard cluster={snapshot()} selection={selection()} onNodeSelect={(id) => setSelection({ kind: "node", id })} onLaneSelect={(id) => setSelection({ kind: "lane", id })} />}</Match>
+          </Switch>
+        </div>
+      </div>
     </main>
   );
 }

@@ -1,0 +1,110 @@
+.ops-rail {
+  position: relative;
+  overflow: hidden;
+  padding: 18px;
+  background: linear-gradient(180deg, rgba(17, 27, 45, 0.98), rgba(8, 13, 23, 0.96));
+  border-bottom: 1px solid var(--edge);
+}
+
+.ops-rail::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  background-image: linear-gradient(rgba(139, 163, 207, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(139, 163, 207, 0.04) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(to bottom, black, transparent 66%);
+}
+
+.ops-rail > * { position: relative; z-index: 1; }
+
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 17px;
+  border-bottom: 1px solid var(--edge);
+}
+
+.rail-brand__mark { display: grid; grid-template-columns: repeat(2, 8px); gap: 3px; direction: ltr; }
+
+.rail-brand__mark i {
+  display: block;
+  width: 8px;
+  height: 8px;
+  background: var(--indigo);
+  box-shadow: 0 0 12px rgba(131, 152, 255, 0.55);
+}
+
+.rail-brand__mark i:nth-child(2) { background: var(--cyan); }
+.rail-brand__mark i:nth-child(3) { background: var(--surface-strong); }
+.rail-brand__mark i:nth-child(4) { background: var(--green); }
+
+.rail-brand strong, .rail-brand span { display: block; direction: ltr; font-family: var(--mono); }
+.rail-brand strong { color: var(--text); font-size: 0.76rem; letter-spacing: 0.08em; }
+.rail-brand span { margin-top: 3px; color: var(--muted); font-size: 0.56rem; letter-spacing: 0.16em; }
+
+.rail-connection {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--edge);
+}
+
+.rail-connection__dot, .rail-legend__dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 4px rgba(237, 113, 128, 0.11);
+}
+
+.rail-connection__dot--live { background: var(--green); box-shadow: 0 0 0 4px rgba(59, 211, 154, 0.1), 0 0 13px rgba(59, 211, 154, 0.55); }
+.rail-connection span:not(.rail-connection__dot), .rail-connection strong { display: block; }
+.rail-connection span:not(.rail-connection__dot) { color: var(--muted); font-size: 0.64rem; }
+.rail-connection strong { margin-top: 3px; color: var(--text-soft); font-size: 0.7rem; font-weight: 600; }
+
+.cluster-bar { display: grid; gap: 10px; padding: 16px 0; border-bottom: 1px solid var(--edge); }
+.cluster-bar__label strong { display: block; margin-top: 4px; color: var(--text); font-size: 0.76rem; }
+.cluster-select { display: grid; gap: 5px; color: var(--muted); font-size: 0.66rem; }
+
+.cluster-select select {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  color: var(--text);
+  background: var(--surface-soft);
+  border: 1px solid var(--edge-bright);
+  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  direction: ltr;
+}
+
+.rail-summary, .rail-legend { padding: 16px 0; border-bottom: 1px solid var(--edge); }
+.rail-summary > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 10px; }
+
+.rail-summary > div > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding-inline-start: 7px;
+  border-inline-start: 1px solid var(--edge-bright);
+}
+
+.rail-summary strong { color: var(--text); font: 500 0.92rem/1 var(--mono); }
+.rail-summary small { color: var(--muted); font-size: 0.57rem; }
+.rail-summary__watch strong { color: var(--warn); }
+
+.rail-legend { display: grid; gap: 8px; }
+.rail-legend .section-label { margin-bottom: 2px; }
+.rail-legend > span { display: flex; align-items: center; gap: 8px; color: var(--text-soft); font-size: 0.65rem; }
+.rail-legend__dot { width: 6px; height: 6px; box-shadow: none; }
+.rail-legend__dot--healthy { background: var(--green); }
+.rail-legend__dot--degraded { background: var(--warn); }
+.rail-legend__dot--unknown { background: var(--unknown); }
+
+.rail-source { margin-top: 15px; color: var(--muted); font-size: 0.61rem; line-height: 1.75; }
+.rail-source b { color: var(--cyan); font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.08em; }
