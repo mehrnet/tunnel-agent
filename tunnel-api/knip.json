@@ -1,0 +1,5 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["web/index.html"],
+  "project": ["src/**/*.ts", "web/**/*.{ts,tsx}"]
+}

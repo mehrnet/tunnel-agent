@@ -1,22 +1,25 @@
 use std::{
     collections::HashMap,
     fs::{self, File},
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::Command,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::release::{
-    BundleFile, BundleIndex, INDEX_NAME, ReleaseDocument, as_utf8, cache_link_or_copy,
-    ensure_index_matches_document, local_architecture, parse_index, set_mode, sha256_bytes,
-    unique_suffix, valid_hash, verify_file, verify_release_document,
-};
 use crate::seed_client::SeedSource;
+use crate::{
+    identity::valid_uuid,
+    release::{
+        BundleFile, BundleIndex, INDEX_NAME, ReleaseDocument, as_utf8, cache_link_or_copy,
+        ensure_index_matches_document, local_architecture, parse_index, set_mode, sha256_bytes,
+        unique_suffix, valid_hash, verify_file, verify_release_document,
+    },
+};
 
 const MAX_DOCUMENT_BYTES: u64 = 16_384;
 const MAX_INDEX_BYTES: u64 = 1_048_576;
+const MAX_TELEMETRY_BYTES: usize = 16_384;
 
 pub(crate) struct SeedResult {
     pub(crate) version: String,
@@ -63,7 +66,7 @@ pub(crate) fn serve(
 }
 
 pub(crate) fn fetch_relay_document(source: &str, node_id: &str) -> Result<String, String> {
-    if !valid_node_id(node_id) {
+    if !valid_uuid(node_id) {
         return Err("relay node id is invalid".to_owned());
     }
     let source = SeedSource::new(source)?;
@@ -72,7 +75,7 @@ pub(crate) fn fetch_relay_document(source: &str, node_id: &str) -> Result<String
 }
 
 pub(crate) fn ping_relay(source: &str, node_id: &str) -> Result<(), String> {
-    if !valid_node_id(node_id) {
+    if !valid_uuid(node_id) {
         return Err("relay node id is invalid".to_owned());
     }
     SeedSource::new(source)?.get_bytes(&format!("/v1/ping/{node_id}"), 0)?;
@@ -156,83 +159,36 @@ fn serve_connection(
     reader
         .read_line(&mut request)
         .map_err(|error| format!("cannot read seed request: {error}"))?;
-    drain_headers(&mut reader)?;
+    let content_length = drain_headers(&mut reader)?;
+    let method = request.split_whitespace().next().unwrap_or_default();
+    let path = request.split_whitespace().nth(1).unwrap_or_default();
+    if method == "POST" && path.starts_with("/v1/telemetry/") {
+        if content_length > MAX_TELEMETRY_BYTES {
+            let mut stream = reader.into_inner();
+            return write_response(&mut stream, 413, "text/plain", b"payload too large\n");
+        }
+        let mut body = vec![0; content_length];
+        reader
+            .read_exact(&mut body)
+            .map_err(|error| format!("cannot read telemetry request body: {error}"))?;
+        let mut stream = reader.into_inner();
+        return crate::seed_relay::serve_telemetry(&mut stream, path, &body, relay_directory);
+    }
     let mut stream = reader.into_inner();
-    if request.split_whitespace().next() != Some("GET") {
+    if method != "GET" {
         return write_response(&mut stream, 405, "text/plain", b"method not allowed\n");
     }
-    let path = request.split_whitespace().nth(1).unwrap_or_default();
     match path {
         "/v1/release" => write_response(&mut stream, 200, "application/json", &state.document),
         "/v1/index" => write_response(&mut stream, 200, "application/json", &state.index),
         value if value.starts_with("/v1/relay/") => {
-            serve_relay(&mut stream, value, relay_directory)
+            crate::seed_relay::serve_document(&mut stream, value, relay_directory)
         }
-        value if value.starts_with("/v1/ping/") => serve_ping(&mut stream, value, relay_directory),
+        value if value.starts_with("/v1/ping/") => {
+            crate::seed_relay::serve_ping(&mut stream, value, relay_directory)
+        }
         _ => serve_blob(&mut stream, path, state),
     }
-}
-
-fn serve_relay(
-    stream: &mut TcpStream,
-    path: &str,
-    relay_directory: Option<&Path>,
-) -> Result<(), String> {
-    let Some(node_id) = path
-        .strip_prefix("/v1/relay/")
-        .filter(|value| valid_node_id(value))
-    else {
-        return write_response(stream, 404, "text/plain", b"not found\n");
-    };
-    let Some(directory) = relay_directory else {
-        return write_response(stream, 404, "text/plain", b"not found\n");
-    };
-    match fs::read(directory.join(format!("{node_id}.json"))) {
-        Ok(document) if document.len() as u64 <= MAX_DOCUMENT_BYTES => {
-            record_relay_heartbeat(directory, node_id)?;
-            write_response(stream, 200, "application/json", &document)
-        }
-        _ => write_response(stream, 404, "text/plain", b"not found\n"),
-    }
-}
-
-fn serve_ping(
-    stream: &mut TcpStream,
-    path: &str,
-    relay_directory: Option<&Path>,
-) -> Result<(), String> {
-    let Some(node_id) = path
-        .strip_prefix("/v1/ping/")
-        .filter(|value| valid_node_id(value))
-    else {
-        return write_response(stream, 404, "text/plain", b"not found\n");
-    };
-    let Some(directory) = relay_directory else {
-        return write_response(stream, 404, "text/plain", b"not found\n");
-    };
-    if !directory.join(format!("{node_id}.json")).is_file() {
-        return write_response(stream, 404, "text/plain", b"not found\n");
-    }
-    record_relay_heartbeat(directory, node_id)?;
-    // SeedSource accepts successful seed endpoints as HTTP 200 responses.
-    write_response(stream, 200, "text/plain", b"")
-}
-
-fn record_relay_heartbeat(relay_directory: &Path, node_id: &str) -> Result<(), String> {
-    let state_directory = relay_directory
-        .parent()
-        .ok_or_else(|| "relay directory has no state parent".to_owned())?
-        .join("relay-heartbeats");
-    fs::create_dir_all(&state_directory)
-        .map_err(|error| format!("cannot create relay heartbeat directory: {error}"))?;
-    let observed_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| format!("system clock is before Unix epoch: {error}"))?
-        .as_secs();
-    crate::release::write_atomic(
-        &state_directory.join(format!("{node_id}.json")),
-        format!(r#"{{"observed_at":{observed_at}}}"#).as_bytes(),
-    )
 }
 
 fn serve_blob(stream: &mut TcpStream, path: &str, state: &ServeState) -> Result<(), String> {
@@ -257,8 +213,9 @@ fn serve_blob(stream: &mut TcpStream, path: &str, state: &ServeState) -> Result<
     Ok(())
 }
 
-fn drain_headers(reader: &mut BufReader<TcpStream>) -> Result<(), String> {
+fn drain_headers(reader: &mut BufReader<TcpStream>) -> Result<usize, String> {
     let mut bytes = 0_usize;
+    let mut content_length = None;
     loop {
         let mut line = String::new();
         reader
@@ -269,12 +226,25 @@ fn drain_headers(reader: &mut BufReader<TcpStream>) -> Result<(), String> {
             return Err("seed request headers exceed 8192 bytes".to_owned());
         }
         if line == "\r\n" || line.is_empty() {
-            return Ok(());
+            return Ok(content_length.unwrap_or(0));
+        }
+        if let Some((name, value)) = line.trim().split_once(':')
+            && name.eq_ignore_ascii_case("content-length")
+        {
+            if content_length.is_some() {
+                return Err("seed request has duplicate content-length headers".to_owned());
+            }
+            content_length = Some(
+                value
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| "seed request has an invalid content-length".to_owned())?,
+            );
         }
     }
 }
 
-fn write_response(
+pub(crate) fn write_response(
     stream: &mut TcpStream,
     status: u16,
     content_type: &str,
@@ -443,11 +413,4 @@ fn activate_release(root: &Path, release: &Path) -> Result<(), String> {
 
 fn is_current_release(root: &Path, release: &Path) -> bool {
     fs::canonicalize(root.join("current")).ok() == fs::canonicalize(release).ok()
-}
-
-fn valid_node_id(value: &str) -> bool {
-    value.len() == 36
-        && value.bytes().enumerate().all(|(index, byte)| {
-            (matches!(index, 8 | 13 | 18 | 23) && byte == b'-') || byte.is_ascii_hexdigit()
-        })
 }

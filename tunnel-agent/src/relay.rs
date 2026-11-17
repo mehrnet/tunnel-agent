@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 use crate::{
     capsule,
+    identity::valid_uuid,
     manifest::{self, NodeScope},
 };
 
@@ -144,13 +145,6 @@ fn read_text(path: &Path, label: &str) -> Result<String, String> {
         return Err(format!("{label} {} must be a UUID", path.display()));
     }
     Ok(value)
-}
-
-fn valid_uuid(value: &str) -> bool {
-    value.len() == 36
-        && value.bytes().enumerate().all(|(index, byte)| {
-            (matches!(index, 8 | 13 | 18 | 23) && byte == b'-') || byte.is_ascii_hexdigit()
-        })
 }
 
 #[cfg(test)]

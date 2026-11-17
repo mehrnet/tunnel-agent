@@ -1,4 +1,4 @@
-import { deleteMenu, editMenu, sendMenu, type TelegramMenu } from "./telegram-client";
+import { deleteMenu, editMenu, sendMenu, type TelegramButton, type TelegramMenu } from "./telegram-client";
 import type { ClusterRow, Env, NodeRow, OwnerRow, TelegramSessionRow } from "./models";
 import { clusterById, clustersForOwner, nodeDocument, nodeForOwnerById, nodesForCluster, nodesForOwner, setTelegramMenu, unattachedNodesForCluster } from "./store";
 import { now } from "./validation";
@@ -51,7 +51,7 @@ async function buildCheckedMenu(env: Env, owner: OwnerRow, view: MenuView): Prom
 
 async function buildMenu(env: Env, owner: OwnerRow, view: MenuView): Promise<TelegramMenu> {
   switch (view.kind) {
-    case "home": return homeMenu(await clustersForOwner(env, owner.id), view.notice);
+    case "home": return homeMenu(env, await clustersForOwner(env, owner.id), view.notice);
     case "cluster": return clusterMenu(env, owner, view);
     case "nodes": return nodesMenu(await nodesForOwner(env, owner.id), view.notice);
     case "node": return nodeMenu(env, owner, view);
@@ -60,7 +60,7 @@ async function buildMenu(env: Env, owner: OwnerRow, view: MenuView): Promise<Tel
   }
 }
 
-function homeMenu(clusters: ClusterRow[], notice?: string): TelegramMenu {
+function homeMenu(env: Env, clusters: ClusterRow[], notice?: string): TelegramMenu {
   const rows = clusters.slice(0, MAX_CLUSTER_ROWS).flatMap((cluster) => [
     [button(`📦 ${cluster.name}`, `cluster:${cluster.id}`)],
     [button("🇮🇷 افزودن داخلی", `newd:${cluster.id}`), button("🌍 افزودن خارجی", `newf:${cluster.id}`)],
@@ -69,13 +69,18 @@ function homeMenu(clusters: ClusterRow[], notice?: string): TelegramMenu {
   return {
     text: ["🧭 تونل ایجنت", notice, clusters.length ? "یک خوشه را انتخاب کنید یا سرور جدید را مستقیماً اضافه کنید." : "ابتدا یک خوشه بسازید تا نخستین سرور آن را اضافه کنید."]
       .filter(Boolean).join("\n\n") + suffix,
-    keyboard: [...rows, [button("🖥 سرورها", "nodes"), button("➕ ساخت خوشه", "cluster-add")], [button("ℹ️ راهنما", "help")]],
+    keyboard: [
+      ...rows,
+      [webAppButton("📡 نقشه زنده", `${env.API_ORIGIN.replace(/\/$/, "")}/web/`)],
+      [button("🖥 سرورها", "nodes"), button("➕ ساخت خوشه", "cluster-add")],
+      [button("ℹ️ راهنما", "help")],
+    ],
   };
 }
 
 async function clusterMenu(env: Env, owner: OwnerRow, view: Extract<MenuView, { kind: "cluster" }>): Promise<TelegramMenu> {
   const cluster = await clusterById(env, owner.id, view.clusterId);
-  if (!cluster) return homeMenu(await clustersForOwner(env, owner.id), "❌ خوشه انتخاب‌شده دیگر وجود ندارد.");
+  if (!cluster) return homeMenu(env, await clustersForOwner(env, owner.id), "❌ خوشه انتخاب‌شده دیگر وجود ندارد.");
   const nodes = await nodesForCluster(env, owner.id, cluster.id);
   const nodeRows = nodes.slice(0, MAX_NODE_ROWS).map((node) => [button(node.name, `node:${node.id}`)]);
   const summary = nodes.length ? nodes.map(nodeSummary).join("\n") : "سروری به این خوشه متصل نیست.";
@@ -100,7 +105,7 @@ function nodesMenu(nodes: NodeRow[], notice?: string): TelegramMenu {
 
 async function nodeMenu(env: Env, owner: OwnerRow, view: Extract<MenuView, { kind: "node" }>): Promise<TelegramMenu> {
   const node = await nodeForOwnerById(env, owner.id, view.nodeId);
-  if (!node) return homeMenu(await clustersForOwner(env, owner.id), "❌ سرور انتخاب‌شده دیگر وجود ندارد.");
+  if (!node) return homeMenu(env, await clustersForOwner(env, owner.id), "❌ سرور انتخاب‌شده دیگر وجود ندارد.");
   const document = await nodeDocument(env, node.id);
   const text = [
     `🖥 سرور: ${node.name}`,
@@ -120,7 +125,7 @@ async function nodeMenu(env: Env, owner: OwnerRow, view: Extract<MenuView, { kin
 
 async function attachMenu(env: Env, owner: OwnerRow, clusterId: string): Promise<TelegramMenu> {
   const cluster = await clusterById(env, owner.id, clusterId);
-  if (!cluster) return homeMenu(await clustersForOwner(env, owner.id), "❌ خوشه انتخاب‌شده دیگر وجود ندارد.");
+  if (!cluster) return homeMenu(env, await clustersForOwner(env, owner.id), "❌ خوشه انتخاب‌شده دیگر وجود ندارد.");
   const nodes = await unattachedNodesForCluster(env, owner.id, clusterId);
   return {
     text: nodes.length ? `🔗 اتصال سرور به ${cluster.name}` : `✅ همه سرورهای شما به ${cluster.name} متصل هستند.`,
@@ -134,8 +139,12 @@ function promptMenu(title: string, detail: string): TelegramMenu {
   return { text: `${title}\n\n${detail}`, keyboard: [[button("✖️ لغو", "home")]] };
 }
 
-function button(text: string, callbackData: string) {
+function button(text: string, callbackData: string): TelegramButton {
   return { text, callback_data: callbackData };
+}
+
+function webAppButton(text: string, url: string): TelegramButton {
+  return { text, web_app: { url } };
 }
 
 function nodeSummary(node: NodeRow): string {

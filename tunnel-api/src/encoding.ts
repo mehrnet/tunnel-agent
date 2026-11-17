@@ -28,19 +28,6 @@ export function base62Capsule(value: string): string {
   return output;
 }
 
-/**
- * Derive an opaque management-lane ID from a canonical topology identity.
- * The input must be stable, for example:
- * `v1\0cluster\0local-node\0peer-node\0transport\0direction`.
- */
-export async function agentLaneId(identity: string): Promise<string> {
-  if (!identity) throw new Error("agent lane identity is required");
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity)));
-  let value = 0n;
-  for (const byte of digest.slice(0, 12)) value = (value << 8n) | BigInt(byte);
-  return base62Block(value, 17);
-}
-
 function base62Block(value: bigint, width: number): string {
   let output = "";
   for (let index = 0; index < width; index += 1) {

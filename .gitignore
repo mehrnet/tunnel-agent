@@ -2,6 +2,7 @@
 /tunnel-api/.dev.vars
 /tunnel-api/.wrangler/
 /tunnel-api/node_modules/
+/tunnel-api/web-dist/
 /tunnel-files/static/bundles/
 /tunnel-files/mirror-staging/
 /vendor/

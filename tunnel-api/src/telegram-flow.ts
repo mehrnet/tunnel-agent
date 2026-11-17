@@ -5,7 +5,7 @@ import { downloadTelegramDocument, answerCallback, sendInstallCommand } from "./
 import { presentMenu, sendFreshMenu, type MenuView } from "./telegram-menu";
 import type { Env, NodeClass, NodeRow, OwnerRow, TelegramCallbackQuery, TelegramMessage, TelegramSessionRow } from "./models";
 import { attachNodeToCluster, audit, clusterById, clusterByName, clusterMembershipCount, createClusterForOwner, createEnrollmentGrant, createNodeForOwner, nodeForOwnerById, nodeByName, ownerForTelegram, setTelegramSessionState, telegramSession } from "./store";
-import { apiOrigin, filesOrigin, NODE_NAME, now, validNodeClass } from "./validation";
+import { apiOrigin, filesOrigin, NODE_NAME, validNodeClass } from "./validation";
 
 const NODE_ID = /^[0-9a-f-]{36}$/;
 
@@ -28,7 +28,7 @@ export async function handleMenuCallback(env: Env, callback: TelegramCallbackQue
 export async function handleMenuMessage(env: Env, message: TelegramMessage): Promise<void> {
   if (!message.from) return;
   const owner = await ownerForTelegram(env, message.from.id, message.from.username);
-  let session = await telegramSession(env, owner.id, message.chat.id);
+  const session = await telegramSession(env, owner.id, message.chat.id);
   const text = message.text?.trim() ?? message.caption?.trim();
   if (text === "/start" || text === "/menu" || text === "/help") return showMessageHome(env, owner, message.chat.id);
   if (!session) return showMessageHome(env, owner, message.chat.id);

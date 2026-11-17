@@ -10,4 +10,7 @@ panic = "abort"
 strip = "symbols"
 
 [workspace.lints.clippy]
+cognitive_complexity = "deny"
 too_many_lines = "deny"
+too_many_arguments = "deny"
+type_complexity = "deny"

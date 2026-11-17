@@ -14,10 +14,11 @@ use tokio::time::{MissedTickBehavior, interval};
 
 use crate::{
     agent_control, agent_heartbeat,
+    identity::valid_uuid,
     manifest::{self, Config, NodeScope},
     relay,
     runtime::{self, spawn_plan, start_plan, stop_plan},
-    seed,
+    seed, telemetry,
 };
 
 const MAX_DOCUMENT_BYTES: usize = 1_048_576;
@@ -57,11 +58,7 @@ pub(crate) fn read_secret_file(path: &Path, label: &str) -> Result<String, Strin
 }
 
 fn validate_node_credentials(node_id: &str, token: &str) -> Result<(), String> {
-    let valid_uuid = node_id.len() == 36
-        && node_id.chars().enumerate().all(|(index, character)| {
-            (matches!(index, 8 | 13 | 18 | 23) && character == '-') || character.is_ascii_hexdigit()
-        });
-    if !valid_uuid {
+    if !valid_uuid(node_id) {
         return Err("node id must be a UUID".to_owned());
     }
     if !token.starts_with(&format!("{node_id}.")) || token.len() <= node_id.len() + 1 {
@@ -203,6 +200,7 @@ async fn reconcile_online(
     let mut active_revision = read_revision(&revision_path)?;
     let mut etag = (active_revision != 0).then(|| format!("\"{active_revision}\""));
     let mut poll = polling_interval(poll_interval_secs);
+    let mut telemetry_reporter = telemetry::Reporter::new();
     let shutdown = crate::runtime::wait_for_shutdown();
     tokio::pin!(shutdown);
 
@@ -262,6 +260,16 @@ async fn reconcile_online(
                 ) {
                     eprintln!("control cache refresh failed; retaining active cache: {error}");
                 }
+                if let Err(error) = report_online_telemetry(
+                    &mut telemetry_reporter,
+                    &active_config,
+                    &client,
+                    &api_url,
+                    &node_id,
+                    &node_token,
+                ) {
+                    eprintln!("telemetry report failed: {error}");
+                }
             }
         }
     }
@@ -274,6 +282,7 @@ async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Resu
     let mut active_revision = read_revision(&revision_path)?;
     let mut updates = polling_interval(offline_poll_interval(&config));
     let mut heartbeat = polling_interval(effective_poll_interval(settings, &config)?);
+    let mut telemetry_reporter = telemetry::Reporter::new();
     let shutdown = runtime::wait_for_shutdown();
     tokio::pin!(shutdown);
     loop {
@@ -307,9 +316,51 @@ async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Resu
                 if let Err(error) = agent_heartbeat::send(settings, &config).await {
                     eprintln!("relay heartbeat failed: {error}");
                 }
+                if let Err(error) = report_domestic_telemetry(settings, &config, &mut telemetry_reporter).await {
+                    eprintln!("domestic telemetry report failed: {error}");
+                }
             }
         }
     }
+}
+
+fn report_online_telemetry(
+    reporter: &mut telemetry::Reporter,
+    config: &Config,
+    client: &BlockingClient,
+    api_url: &str,
+    node_id: &str,
+    node_token: &str,
+) -> Result<(), String> {
+    let Some(report) = reporter.sample(config)? else {
+        return Ok(());
+    };
+    telemetry::send_direct(client, api_url, node_id, node_token, &report)
+}
+
+async fn report_domestic_telemetry(
+    settings: &AgentSettings,
+    config: &Config,
+    reporter: &mut telemetry::Reporter,
+) -> Result<(), String> {
+    let Some(source) = config
+        .agent
+        .bundle_seed
+        .as_ref()
+        .map(|seed| seed.source.clone())
+    else {
+        return Ok(());
+    };
+    let Some(report) = reporter.sample(config)? else {
+        return Ok(());
+    };
+    let node_id_file = settings.node_id_file.clone();
+    tokio::task::spawn_blocking(move || {
+        let node_id = read_secret_file(&node_id_file, "node id")?;
+        telemetry::send_domestic(&source, &node_id, &report)
+    })
+    .await
+    .map_err(|error| format!("domestic telemetry task failed: {error}"))?
 }
 
 fn offline_poll_interval(config: &Config) -> u64 {
@@ -440,49 +491,5 @@ async fn apply_document(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const NODE_ID: &str = "d6caf939-b959-4471-918f-2e05ca282a37";
-
-    fn bundled_config(scope: &str, root: &str) -> Config {
-        manifest::parse_config(&format!(
-            r#"{{
-                "version": 3,
-                "node_scope": "{scope}",
-                "bundle": {{ "root": "{root}" }},
-                "tunnels": []
-            }}"#
-        ))
-        .expect("valid v3 test manifest")
-    }
-
-    #[test]
-    fn accepts_node_token_bound_to_its_node_id() {
-        validate_node_credentials(
-            NODE_ID,
-            "d6caf939-b959-4471-918f-2e05ca282a37.0123456789abcdef",
-        )
-        .expect("token is bound to node id");
-    }
-
-    #[test]
-    fn rejects_node_token_for_another_node() {
-        assert!(
-            validate_node_credentials(
-                NODE_ID,
-                "43d4d9e2-9131-4e84-bcd5-f2baac3f0214.0123456789abcdef",
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn remote_document_cannot_change_scope_or_bundle_root() {
-        let active = bundled_config("domestic", "/opt/tunnel-agent/current");
-        let changed_scope = bundled_config("foreign", "/opt/tunnel-agent/current");
-        let changed_root = bundled_config("domestic", "/opt/tunnel-agent/other");
-        assert!(ensure_compatible_document(&active, &changed_scope).is_err());
-        assert!(ensure_compatible_document(&active, &changed_root).is_err());
-    }
-}
+#[path = "agent_tests.rs"]
+mod tests;

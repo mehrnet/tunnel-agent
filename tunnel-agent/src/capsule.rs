@@ -11,7 +11,10 @@ use base64::{
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::Deserialize;
 
-use crate::manifest::{self, NodeScope};
+use crate::{
+    identity::valid_uuid,
+    manifest::{self, NodeScope},
+};
 
 const PREFIX: &str = "ta1";
 const HEADER_WIDTH: usize = 5;
@@ -249,13 +252,6 @@ fn validate_relays(relays: &[Relay]) -> Result<(), String> {
         return Err("capsule has invalid relay endpoints".to_owned());
     }
     Ok(())
-}
-
-fn valid_uuid(value: &str) -> bool {
-    value.len() == 36
-        && value.bytes().enumerate().all(|(index, byte)| {
-            (matches!(index, 8 | 13 | 18 | 23) && byte == b'-') || byte.is_ascii_hexdigit()
-        })
 }
 
 fn valid_url(value: &str) -> bool {

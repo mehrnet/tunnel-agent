@@ -55,7 +55,7 @@ export async function replaceNodeDocument(
   return { revision, manifest_json: manifestJson, updated_at: updatedAt };
 }
 
-export function normalizeManifest(rawManifest: string, node: NodeRow): string {
+function normalizeManifest(rawManifest: string, node: NodeRow): string {
   if (utf8Bytes(rawManifest) > MAX_MANIFEST_BYTES) {
     throw new Error(`manifest exceeds ${MAX_MANIFEST_BYTES} bytes`);
   }

@@ -91,12 +91,12 @@ export interface TelegramUpdate {
   callback_query?: TelegramCallbackQuery;
 }
 
-export interface TelegramUser {
+interface TelegramUser {
   id: number;
   username?: string;
 }
 
-export interface TelegramChat {
+interface TelegramChat {
   id: number;
 }
 

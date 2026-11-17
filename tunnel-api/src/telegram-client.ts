@@ -1,10 +1,17 @@
 import { MAX_MANIFEST_BYTES } from "./documents";
 import type { Env, TelegramDocument } from "./models";
 
-export interface TelegramButton {
+interface CallbackButton {
   text: string;
   callback_data: string;
 }
+
+interface WebAppButton {
+  text: string;
+  web_app: { url: string };
+}
+
+export type TelegramButton = CallbackButton | WebAppButton;
 
 export interface TelegramMenu {
   text: string;
@@ -32,7 +39,7 @@ export async function sendMenu(env: Env, chatId: number, menu: TelegramMenu): Pr
   return result;
 }
 
-export async function sendText(env: Env, chatId: number, text: string): Promise<void> {
+async function sendText(env: Env, chatId: number, text: string): Promise<void> {
   if (text.length > 4096) throw new Error("متن از حد مجاز تلگرام طولانی‌تر است.");
   const result = await callTelegram<TelegramMessageRef>(env, "sendMessage", {
     chat_id: chatId,

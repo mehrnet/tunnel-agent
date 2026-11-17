@@ -4,12 +4,15 @@ mod agent_heartbeat;
 mod agent_lane;
 mod agent_spec;
 mod capsule;
+mod identity;
 mod manifest;
 mod relay;
 mod release;
 mod runtime;
 mod seed;
 mod seed_client;
+mod seed_relay;
+mod telemetry;
 
 use std::{
     io::Read,

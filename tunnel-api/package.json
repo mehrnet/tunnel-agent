@@ -4,15 +4,35 @@
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit",
+    "web:check": "tsc --project web/tsconfig.json --noEmit",
+    "web:dev": "vite --config web/vite.config.ts",
+    "web:build": "vite build --config web/vite.config.ts",
+    "lint": "eslint src web",
+    "deadcode": "knip --config knip.json",
+    "duplicates": "jscpd --config jscpd.json",
+    "quality": "npm run lint && npm run deadcode && npm run duplicates",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "npm run web:build && wrangler deploy",
     "files:deploy": "wrangler deploy --config ../tunnel-files/wrangler.jsonc",
     "db:migrate:local": "wrangler d1 migrations apply tunnel-agent --local",
     "db:migrate:remote": "wrangler d1 migrations apply tunnel-agent --remote"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261114.1",
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-plugin-import-x": "^4.18.1",
+    "eslint-plugin-solid": "^0.19.0",
+    "eslint-plugin-sonarjs": "^4.2.2",
+    "jscpd": "^5.4.3",
+    "knip": "^6.45.1",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.73.0",
+    "vite": "^8.3.8",
+    "vite-plugin-solid": "^2.11.16",
     "wrangler": "^4.162.0"
+  },
+  "dependencies": {
+    "solid-js": "^1.9.19"
   }
 }

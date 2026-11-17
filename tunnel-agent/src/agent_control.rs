@@ -10,8 +10,9 @@ use serde::Deserialize;
 use crate::{
     agent_lane::AgentLaneRole,
     agent_spec,
+    identity::valid_uuid,
     manifest::{Config, NodeScope},
-    release,
+    release, telemetry,
 };
 
 const MAX_CONTROL_KEY_BYTES: usize = 8_192;
@@ -108,7 +109,8 @@ pub(crate) fn refresh_cache(
         node_token,
         &state_dir.join("relay-documents"),
     )?;
-    report_relay_heartbeats(client, api_url, node_id, node_token, state_dir)
+    report_relay_heartbeats(client, api_url, node_id, node_token, state_dir)?;
+    telemetry::report_relay_telemetry(client, api_url, node_id, node_token, state_dir)
 }
 
 fn active_clients(config: &Config) -> impl Iterator<Item = &crate::agent_lane::AgentLane> {
@@ -226,7 +228,8 @@ fn cache_relay_documents(directory: &Path, documents: Vec<RelayDocument>) -> Res
             document.envelope.as_bytes(),
         )?;
     }
-    remove_stale_documents(directory, &active)
+    remove_stale_documents(directory, &active)?;
+    remove_stale_relay_state(directory, &active)
 }
 
 fn report_relay_heartbeats(
@@ -320,6 +323,30 @@ fn read_reported_heartbeats(path: &Path) -> Result<HashMap<String, u64>, String>
 }
 
 fn remove_stale_documents(directory: &Path, active: &HashSet<String>) -> Result<(), String> {
+    remove_stale_node_files(directory, active, "relay document")
+}
+
+fn remove_stale_relay_state(directory: &Path, active: &HashSet<String>) -> Result<(), String> {
+    let state_dir = directory.parent().ok_or_else(|| {
+        format!(
+            "cannot resolve relay state directory from {}",
+            directory.display()
+        )
+    })?;
+    for name in ["relay-heartbeats", "relay-telemetry"] {
+        let path = state_dir.join(name);
+        if path.exists() {
+            remove_stale_node_files(&path, active, name)?;
+        }
+    }
+    Ok(())
+}
+
+fn remove_stale_node_files(
+    directory: &Path,
+    active: &HashSet<String>,
+    label: &str,
+) -> Result<(), String> {
     for entry in fs::read_dir(directory)
         .map_err(|error| format!("cannot read {}: {error}", directory.display()))?
     {
@@ -333,7 +360,7 @@ fn remove_stale_documents(directory: &Path, active: &HashSet<String>) -> Result<
         };
         if valid_uuid(name) && !active.contains(name) {
             fs::remove_file(entry.path())
-                .map_err(|error| format!("cannot remove stale relay document: {error}"))?;
+                .map_err(|error| format!("cannot remove stale {label}: {error}"))?;
         }
     }
     Ok(())
@@ -350,9 +377,48 @@ fn write_file(path: &Path, contents: &str, mode: u32) -> Result<(), String> {
     Ok(())
 }
 
-fn valid_uuid(value: &str) -> bool {
-    value.len() == 36
-        && value.bytes().enumerate().all(|(index, byte)| {
-            (matches!(index, 8 | 13 | 18 | 23) && byte == b'-') || byte.is_ascii_hexdigit()
-        })
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::HashSet,
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::remove_stale_relay_state;
+
+    const ACTIVE_NODE: &str = "d6caf939-b959-4471-918f-2e05ca282a37";
+    const REMOVED_NODE: &str = "43d4d9e2-9131-4e84-bcd5-f2baac3f0214";
+
+    #[test]
+    fn removes_state_for_nodes_no_longer_authorized_to_relay() {
+        let root = temporary_directory();
+        let documents = root.join("relay-documents");
+        let heartbeats = root.join("relay-heartbeats");
+        let telemetry = root.join("relay-telemetry");
+        for directory in [&documents, &heartbeats, &telemetry] {
+            fs::create_dir_all(directory).expect("creates relay state directory");
+            fs::write(directory.join(format!("{ACTIVE_NODE}.json")), b"active")
+                .expect("writes active state");
+            fs::write(directory.join(format!("{REMOVED_NODE}.json")), b"removed")
+                .expect("writes stale state");
+        }
+        let active = HashSet::from([ACTIVE_NODE.to_owned()]);
+
+        remove_stale_relay_state(&documents, &active).expect("cleans stale state");
+
+        for directory in [&heartbeats, &telemetry] {
+            assert!(directory.join(format!("{ACTIVE_NODE}.json")).exists());
+            assert!(!directory.join(format!("{REMOVED_NODE}.json")).exists());
+        }
+        fs::remove_dir_all(root).expect("removes test directory");
+    }
+
+    fn temporary_directory() -> std::path::PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("tunnel-agent-control-{suffix}"))
+    }
 }

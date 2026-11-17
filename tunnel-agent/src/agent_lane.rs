@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 use crate::{
     agent_spec::{AgentDirection, AgentListener, AgentPeer, AgentTransport},
+    identity::valid_uuid,
     manifest::{GeneratedFile, ListenerClaim, NodeScope, ProcessSpec, RestartPolicy},
 };
 
@@ -369,13 +370,6 @@ fn validate_restart(restart: &RestartPolicy, id: &str) -> Result<(), String> {
         return Err(format!("agent lane {:?} restart policy is invalid", id));
     }
     Ok(())
-}
-
-fn valid_uuid(value: &str) -> bool {
-    value.len() == 36
-        && value.bytes().enumerate().all(|(index, byte)| {
-            (matches!(index, 8 | 13 | 18 | 23) && byte == b'-') || byte.is_ascii_hexdigit()
-        })
 }
 
 fn valid_host(value: &str) -> bool {

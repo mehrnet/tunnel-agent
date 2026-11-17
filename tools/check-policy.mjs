@@ -1,28 +1,28 @@
 #!/usr/bin/env node
 import { readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const limits = [
-  { directory: ".", extension: ".sh", maxLines: 350, recursive: false },
-  { directory: "tunnel-api/src", extension: ".ts", maxLines: 300 },
-  { directory: "tunnel-agent/src", extension: ".rs", maxLines: 500 },
-  { directory: "tools", extension: ".sh", maxLines: 350 },
-  { directory: "tunnel-files/static", extension: ".sh", maxLines: 350 },
-];
-const allowances = new Map([
-  ["tunnel-agent/src/manifest.rs", 1850],
-  ["tunnel-files/static/install.sh", 450],
-]);
-const typeScriptFunctionLimit = 90;
 const failures = [];
+const rules = [
+  { directory: "tunnel-agent/src", extensions: [".rs"], maxLines: 500 },
+  { directory: "tunnel-api/src", extensions: [".ts"], maxLines: 300 },
+  { directory: "tunnel-api", extensions: [".mjs"], maxLines: 300 },
+  { directory: "tunnel-api/web", extensions: [".ts", ".tsx", ".css", ".html"], maxLines: 300 },
+  { directory: "tools", extensions: [".mjs"], maxLines: 300 },
+  { directory: "tools", extensions: [".sh"], maxLines: 350 },
+  { directory: "tunnel-files/static", extensions: [".sh"], maxLines: 350 },
+];
+const shellFunctionLimit = 100;
+const shellAllowances = new Map([["tunnel-files/static/install.sh", 450]]);
+const excludedDirectories = new Set([".git", "dist", "node_modules", "web-dist"]);
 
-function filesIn(directory, extension, recursive = true) {
+function filesIn(directory) {
   return readdirSync(join(root, directory), { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) return recursive ? filesIn(path, extension, recursive) : [];
-    return entry.isFile() && entry.name.endsWith(extension) ? [path] : [];
+    const relative = join(directory, entry.name);
+    if (entry.isDirectory()) return excludedDirectories.has(entry.name) ? [] : filesIn(relative);
+    return entry.isFile() ? [relative] : [];
   });
 }
 
@@ -30,57 +30,39 @@ function lineCount(path) {
   return readFileSync(join(root, path), "utf8").split("\n").length - 1;
 }
 
-function countBraces(line) {
+function braceDelta(line) {
   return [...line].reduce((depth, character) => depth + (character === "{") - (character === "}"), 0);
 }
 
-function typeScriptFunctions(path) {
+function checkShellFunctions(path) {
   const lines = readFileSync(join(root, path), "utf8").split("\n");
-  const functions = [];
-  const declaration = /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/;
-  for (let index = 0; index < lines.length; index += 1) {
-    const match = lines[index].match(declaration);
-    if (!match) continue;
-    let depth = 0;
-    let began = false;
-    let end = index;
-    for (; end < lines.length; end += 1) {
-      if (lines[end].includes("{")) began = true;
-      if (began) depth += countBraces(lines[end]);
-      if (began && depth === 0) break;
+  let functionName;
+  let start;
+  let depth = 0;
+  for (const [index, line] of lines.entries()) {
+    if (!functionName && /^[_a-zA-Z][_a-zA-Z0-9]*\(\)\s*\{/.test(line)) {
+      [functionName] = line.split("(");
+      start = index;
+      depth = 0;
     }
-    functions.push({ name: match[1], start: index + 1, end: end + 1, body: lines.slice(index, end + 1).join("") });
-    index = end;
+    if (!functionName) continue;
+    depth += braceDelta(line);
+    if (depth !== 0) continue;
+    const size = index - start + 1;
+    if (size > shellFunctionLimit) {
+      failures.push(`${path}:${start + 1}: ${functionName} is ${size} lines (max ${shellFunctionLimit})`);
+    }
+    functionName = undefined;
   }
-  return functions;
 }
 
-function normalized(body) {
-  return body.replace(/\/\/.*$/gm, "").replace(/\s+/g, "");
-}
-
-for (const rule of limits) {
-  for (const path of filesIn(rule.directory, rule.extension, rule.recursive)) {
-    const maximum = allowances.get(path) ?? rule.maxLines;
+for (const rule of rules) {
+  for (const path of filesIn(rule.directory)) {
+    if (!rule.extensions.some((extension) => path.endsWith(extension))) continue;
+    const maximum = shellAllowances.get(path) ?? rule.maxLines;
     const lines = lineCount(path);
     if (lines > maximum) failures.push(`${path}: ${lines} lines exceeds ${maximum}`);
-  }
-}
-
-const seenNames = new Map();
-const seenBodies = new Map();
-for (const path of filesIn("tunnel-api/src", ".ts")) {
-  for (const fn of typeScriptFunctions(path)) {
-    const lines = fn.end - fn.start + 1;
-    if (lines > typeScriptFunctionLimit) failures.push(`${path}:${fn.start}: ${fn.name} is ${lines} lines (max ${typeScriptFunctionLimit})`);
-    const existingName = seenNames.get(fn.name);
-    if (existingName) failures.push(`${path}:${fn.start}: duplicate function name ${fn.name}; first declared at ${existingName}`);
-    seenNames.set(fn.name, `${path}:${fn.start}`);
-    const body = normalized(fn.body.slice(fn.body.indexOf("{") + 1));
-    if (body.length < 160) continue;
-    const existingBody = seenBodies.get(body);
-    if (existingBody) failures.push(`${path}:${fn.start}: duplicate function body; first declared at ${existingBody}`);
-    seenBodies.set(body, `${path}:${fn.start}`);
+    if (path.endsWith(".sh")) checkShellFunctions(path);
   }
 }
 

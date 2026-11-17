@@ -1,0 +1,8 @@
+{
+  "path": ["src", "web", "../tunnel-agent/src", "../tools", "../tunnel-files/static"],
+  "ignore": ["**/node_modules/**", "**/.wrangler/**", "**/target/**", "**/web-dist/**", "**/mirror-staging/**", "**/*tests.rs"],
+  "minLines": 10,
+  "minTokens": 70,
+  "threshold": 0,
+  "reporters": ["console"]
+}

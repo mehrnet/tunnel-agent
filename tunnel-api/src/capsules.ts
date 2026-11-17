@@ -8,12 +8,6 @@ import { signApiPayload } from "./signing";
 import { activeBundle, audit, foreignClusterMember, foreignRelayAddresses, nodeById, nodeClusters, nodeDocument } from "./store";
 import { filesOrigin, now } from "./validation";
 
-interface CapsuleBundle {
-  v: string;
-  h: string;
-  u: string;
-}
-
 interface Relay {
   h: string;
   p: number;
