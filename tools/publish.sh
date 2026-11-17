@@ -4,7 +4,14 @@ set -eu
 
 : "${BUNDLE_VERSION:?set BUNDLE_VERSION, for example v0.4.0}"
 : "${BUNDLE_SOURCE_DIR:?set BUNDLE_SOURCE_DIR to the GitHub release download directory}"
-: "${BUNDLE_PUBLISH_TOKEN:?set BUNDLE_PUBLISH_TOKEN to the Worker activation secret}"
+bundle_activate=${BUNDLE_ACTIVATE:-true}
+case "$bundle_activate" in
+  true|false) ;;
+  *) echo "BUNDLE_ACTIVATE must be true or false" >&2; exit 2 ;;
+esac
+if [ "$bundle_activate" = true ]; then
+  : "${BUNDLE_PUBLISH_TOKEN:?set BUNDLE_PUBLISH_TOKEN to the Worker activation secret}"
+fi
 
 case "$BUNDLE_VERSION" in
   ''|*[!0-9A-Za-z._+-]*)
@@ -51,7 +58,7 @@ if [ -n "$domestic_bases" ] && { [ -n "$domestic_amd64_url" ] || [ -n "$domestic
 fi
 
 valid_domestic_url() {
-  case "$1" in https://*|http://dl.mehr-mir.ir/*) ;; *) return 1;; esac
+  case "$1" in https://*|http://dl.mehr-mir.ir|http://dl.mehr-mir.ir/*) ;; *) return 1;; esac
   ! printf '%s' "$1" | grep -Eq '[[:space:]"\\,?#]'
 }
 
@@ -134,8 +141,8 @@ domestic_urls_json() {
     IFS=$old_ifs
     for domestic_base in "$@"; do
       case "$domestic_format" in
-        manifest) domestic_url="${domestic_base%/}/$archive.parts" ;;
-        archive) domestic_url="${domestic_base%/}/$archive" ;;
+        manifest) domestic_url="${domestic_base%/}/bundles/$BUNDLE_VERSION/$archive.parts" ;;
+        archive) domestic_url="${domestic_base%/}/bundles/$BUNDLE_VERSION/$archive" ;;
       esac
       urls=${urls:+"$urls,"}$domestic_url
     done
@@ -233,12 +240,18 @@ printf '\n]}\n' >> "$payload_file"
 # Static files must exist before their D1 records can be returned to a node.
 (
   cd "$api_dir"
-  npm exec -- wrangler deploy --config "$files_config"
-  curl --fail-with-body --silent --show-error \
-    --header "authorization: Bearer $BUNDLE_PUBLISH_TOKEN" \
-    --header "content-type: application/json" \
-    --data-binary "@$payload_file" \
-    "${api_origin%/}/api/v1/admin/bundles/activate"
+  npm exec -- wrangler deploy --config "$files_config" >&2
 )
 
+if [ "$bundle_activate" = false ]; then
+  cat "$payload_file"
+  echo "published static assets for $BUNDLE_VERSION; activation was intentionally skipped" >&2
+  exit 0
+fi
+
+curl --fail-with-body --silent --show-error \
+  --header "authorization: Bearer $BUNDLE_PUBLISH_TOKEN" \
+  --header "content-type: application/json" \
+  --data-binary "@$payload_file" \
+  "${api_origin%/}/api/v1/admin/bundles/activate"
 echo "published and activated $BUNDLE_VERSION"
