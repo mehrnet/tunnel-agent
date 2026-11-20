@@ -1,0 +1,83 @@
+.app-shell { display: block; direction: ltr; }
+.app-workspace { direction: ltr; max-width: none; padding: 20px; margin: 0; }
+.app-workspace__content { margin: 0; }
+.observatory-grid { display: block; }
+.cluster-tabs { display: flex; gap: 4px; overflow-x: auto; padding: 12px 20px 0; border-bottom: 1px solid var(--edge); }
+.cluster-tabs button { flex-shrink: 0; padding: 12px 20px; border: 1px solid transparent; border-bottom: 0; border-radius: 7px 7px 0 0; color: var(--muted); background: transparent; }
+.cluster-tabs button.active { color: var(--text); border-color: var(--edge); background: var(--surface); }
+.cluster-tabs button:last-child { font-size: 22px; padding: 5px 18px; }
+.topology-panel { min-height: calc(100dvh - 110px); }
+.topology-viewport { min-height: 55vh; }
+.map-node, .map-node strong, .route-rail, .triage-column h3 { text-align: left; }
+.map-node__metrics { font-size: 10px; }
+.popup-shade { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: #0006; padding: 20px; }
+.node-popup { width: min(440px, 100%); max-height: 85dvh; overflow: auto; direction: ltr; box-shadow: 0 24px 90px #0008; }
+.create-cluster { display: grid; gap: 18px; padding: 25px; border: 1px solid var(--edge); border-radius: 10px; background: var(--surface); }
+.create-cluster input, .create-cluster button { padding: 12px; border: 1px solid var(--edge); border-radius: 5px; color: var(--text); background: var(--bg); }
+.create-cluster p { color: var(--danger); }
+.topology-viewport { overflow: hidden; height: 65dvh; min-height: 360px; touch-action: none; cursor: grab; direction: ltr; }
+.topology-viewport:active { cursor: grabbing; }
+.topology-canvas { display: block; width: 1000px; min-width: 1000px; transform-origin: 0 0; }
+.topology-routes { display: block; }
+.node-bank { position: absolute; width: 23.2%; top: 0; gap: 16px; }
+.map-node { height: 138px; }
+.map-reset { margin: 10px 18px; padding: 6px 12px; color: var(--text); background: var(--surface); border: 1px solid var(--edge); border-radius: 5px; }
+.app-shell { height: var(--tg-viewport-stable-height, 100dvh); min-height: 0; display: flex; flex-direction: column; padding-top: max(env(safe-area-inset-top), var(--tg-content-safe-area-inset-top, 0px)); padding-bottom: max(env(safe-area-inset-bottom), var(--tg-content-safe-area-inset-bottom, 0px)); }
+.app-workspace { flex: 1; min-height: 0; padding: 0; }
+.app-workspace__content, .observatory-grid { height: 100%; }
+.topology-panel { position: relative; height: 100%; min-height: 0; border: 0; border-radius: 0; }
+.topology-viewport { height: 100%; min-height: 0; padding: 16px; }
+.topology-canvas { height: auto; }
+.map-zoom { position: absolute; right: 16px; bottom: 16px; z-index: 3; display: flex; align-items: center; background: var(--surface); border: 1px solid var(--edge); border-radius: 7px; box-shadow: 0 4px 18px #0005; }
+.map-zoom button { width: 40px; height: 40px; color: var(--text); border: 0; background: transparent; font-size: 22px; }
+.map-zoom span { min-width: 54px; text-align: center; font: 12px var(--mono); }
+.route-line--management .route-line__track { stroke: var(--indigo); }
+.route-line--tunnel .route-line__track { stroke: var(--cyan); }
+.route-line--management .route-line__label { fill: var(--indigo); }
+.route-line--tunnel .route-line__label { fill: var(--cyan); }
+.route-line .route-line__track { fill: none; }
+.topology-canvas { width: 640px; min-width: 640px; }
+.node-bank { width: 23.2%; }
+.map-node { padding: 7px; }
+.map-zoom button { display: grid; place-items: center; }
+.map-zoom button:first-child { border-right: 1px solid var(--edge); }
+html, body, #root { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; overscroll-behavior: none; }
+* { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.app-shell { position: fixed; inset: 0; width: 100%; height: var(--app-height, var(--tg-viewport-stable-height, 100dvh)); overflow: hidden; padding: max(env(safe-area-inset-top), var(--app-inset-top, calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)))) max(env(safe-area-inset-right), var(--app-inset-right, 0px)) max(env(safe-area-inset-bottom), var(--app-inset-bottom, 0px)) max(env(safe-area-inset-left), var(--app-inset-left, 0px)); }
+.cluster-tabs { flex-shrink: 0; overflow: hidden; flex-wrap: wrap; }
+.cluster-tabs button { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.observatory-grid { position: relative; overflow: hidden; container-type: size; }
+.topology-panel--vertical { width: 100cqh; height: 100cqw; transform-origin: 0 0; transform: translateX(100cqw) rotate(90deg); }
+.topology-viewport { background: var(--bg); }
+.topology-canvas::before { content: ""; position: absolute; inset: -4000px; pointer-events: none; background-image: linear-gradient(#768fc212 1px, transparent 1px), linear-gradient(90deg, #768fc212 1px, transparent 1px); background-size: 26px 26px; }
+.node-popup { overflow: auto; }
+.node-popup form label, .node-popup.create-cluster label { display: grid; gap: 5px; }
+.observatory-grid:has(.topology-panel--vertical) > .popup-shade .node-popup { width: min(440px, 80dvh); max-height: 85vw; transform: rotate(90deg); }
+.route-line--degraded .route-line__track { stroke: var(--danger); stroke-dasharray: 8 6; animation: none; }
+.route-line--degraded .route-line__label { fill: var(--danger); }
+.route-line--unknown .route-line__track { stroke-dasharray: 3 6; }
+.topology-canvas { height: var(--map-height) !important; }
+.topology-canvas { width: 1000px; min-width: 1000px; }
+.node-bank { width: 280px; }
+.map-node { padding: 10px 12px; -webkit-tap-highlight-color: transparent; touch-action: none; }
+.map-node:hover, .map-node--selected { background: rgba(13, 23, 39, 0.97); border-color: var(--edge-bright); box-shadow: none; transform: none; }
+.map-node__metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; margin-top: 6px; font-size: 10px; }
+.map-node__metrics span { display: grid; grid-template-columns: 34px 1fr; padding: 3px 5px; border: 1px solid var(--edge); white-space: nowrap; }
+.map-node__metrics b { text-align: right; white-space: nowrap; }
+.topology-viewport * { touch-action: none; -webkit-tap-highlight-color: transparent; }
+.route-line--selected .route-line__track { stroke-width: 2px; filter: none; }
+.route-line--selected .route-line__label { font-weight: 400; }
+.map-node { height: 180px; }
+.node-bank { gap: 16px; }
+.map-node__metrics span { line-height: 16px; }
+.stat-icon { width: 14px; height: 14px; flex: 0 0 14px; vertical-align: middle; }
+.map-node__metrics em, .detail-row > span { display: flex; align-items: center; gap: 5px; font-style: normal; }
+.map-node__metrics span { grid-template-columns: 52px 1fr; }
+.cluster-tabs { overflow: visible; position: relative; padding-right: 76px; min-height: 56px; }
+.add-menu { position: absolute; right: 16px; top: 8px; z-index: 12; }
+.add-menu > button { width: 44px; height: 40px; }
+.add-menu__items { position: absolute; right: 0; top: 44px; display: grid; width: 160px; padding: 6px; border: 1px solid var(--edge); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 24px #0006; }
+.add-menu__items button { width: 100%; font-size: 13px !important; text-align: left; padding: 12px !important; }
+.bootstrap-field { display: grid; gap: 8px; margin-top: 15px; font-size: 12px; }
+.bootstrap-field pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: 10px; background: var(--bg); font: 10px/1.5 var(--mono); max-height: 160px; overflow: auto; }
+.bootstrap-field button, .create-cluster select { padding: 9px; color: var(--text); border: 1px solid var(--edge); background: var(--surface); border-radius: 5px; }

@@ -168,6 +168,19 @@ fn validate_wstunnel_path(path: &str, id: &str) -> Result<(), String> {
     if !path.starts_with('/') {
         return Err(format!("tunnel {id:?} path_prefix must start with '/'"));
     }
+    if !id.starts_with("owned-") {
+        return Ok(());
+    }
+    let prefix = path.strip_prefix('/').unwrap_or("");
+    if prefix.is_empty()
+        || !prefix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(format!(
+            "tunnel {id:?} path_prefix must contain one non-empty URL segment after '/'"
+        ));
+    }
     Ok(())
 }
 

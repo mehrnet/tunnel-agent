@@ -4,6 +4,7 @@ mod agent_heartbeat;
 mod agent_lane;
 mod agent_spec;
 mod capsule;
+mod foreign_update;
 mod identity;
 mod manifest;
 mod relay;
@@ -13,6 +14,7 @@ mod seed;
 mod seed_client;
 mod seed_relay;
 mod telemetry;
+mod tunnel_probes;
 
 use std::{
     io::Read,
@@ -26,7 +28,7 @@ use manifest::CompiledPlan;
 
 const VERSION: &str = match option_env!("TUNNEL_AGENT_VERSION") {
     Some(version) => version,
-    None => env!("CARGO_PKG_VERSION"),
+    None => concat!("v", env!("CARGO_PKG_VERSION")),
 };
 
 #[derive(Parser)]

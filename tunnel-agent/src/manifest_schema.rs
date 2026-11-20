@@ -88,7 +88,7 @@ pub enum PackageFormat {
     TarGz,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessSpec {
     pub id: String,

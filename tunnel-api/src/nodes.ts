@@ -1,7 +1,7 @@
 import { error, json, message, parseJson } from "./http";
 import type { DocumentRow, Env, NodeClass } from "./models";
 import { audit, requireGrant } from "./store";
-import { BUNDLE_ROOT, base64Utf8, now, randomToken, sha256 } from "./validation";
+import { BUNDLE_ROOT, DEFAULT_REPORT_INTERVAL_SECONDS, base64Utf8, now, randomToken, sha256 } from "./validation";
 
 export function nodeManifest(nodeClass: NodeClass): string {
   return JSON.stringify({
@@ -9,7 +9,7 @@ export function nodeManifest(nodeClass: NodeClass): string {
     node_scope: nodeClass,
     bundle: { root: BUNDLE_ROOT },
     agent: {
-      poll_interval_secs: 60,
+      poll_interval_secs: DEFAULT_REPORT_INTERVAL_SECONDS,
       max_active_lanes: 1,
       lanes: [],
     },
@@ -25,24 +25,29 @@ export async function handleEnroll(request: Request, env: Env): Promise<Response
   const publicKey = typeof body?.public_key === "string" ? body.public_key.slice(0, 4096) : null;
   if (!grant || !publicKey) return error("invalid enrollment grant or public key", 401);
 
-  const consumed = await env.DB.prepare(
-    "UPDATE enrollment_grants SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND expires_at > ?",
-  )
-    .bind(now(), grant.grant_id, now())
-    .run();
-  if (consumed.meta.changes !== 1) return error("enrollment grant was already consumed or expired", 409);
-
   const nodeSecret = randomToken();
-  await env.DB.batch([
+  const secretHash = await sha256(nodeSecret);
+  const timestamp = now();
+  const [consumed] = await env.DB.batch([
     env.DB.prepare(
-      "UPDATE nodes SET public_key = ?, status = 'enrolled', enrolled_at = ? WHERE id = ?",
-    ).bind(publicKey, now(), grant.id),
+      `UPDATE enrollment_grants SET consumed_at = ?
+        WHERE id = ? AND node_id = ? AND consumed_at IS NULL AND expires_at > ?
+          AND EXISTS (SELECT 1 FROM nodes WHERE id = ? AND status = 'pending' AND node_class = 'foreign')`,
+    ).bind(timestamp, grant.grant_id, grant.id, timestamp, grant.id),
+    // Each write is conditional on the previous write in this transaction.
     env.DB.prepare(
       `INSERT INTO node_credentials (node_id, secret_hash, created_at, rotated_at)
-       VALUES (?, ?, ?, ?)
+       SELECT ?, ?, ?, ? WHERE changes() = 1
        ON CONFLICT(node_id) DO UPDATE SET secret_hash = excluded.secret_hash, rotated_at = excluded.rotated_at`,
-    ).bind(grant.id, await sha256(nodeSecret), now(), now()),
+    ).bind(grant.id, secretHash, timestamp, timestamp),
+    env.DB.prepare(
+      "UPDATE nodes SET public_key = ?, status = 'enrolled', enrolled_at = ? WHERE id = ? AND changes() = 1",
+    ).bind(publicKey, timestamp, grant.id),
+    env.DB.prepare(
+      "UPDATE enrollment_grants SET consumed_at = ? WHERE node_id = ? AND consumed_at IS NULL AND changes() = 1",
+    ).bind(timestamp, grant.id),
   ]);
+  if (consumed.meta.changes !== 1) return error("enrollment grant expired, was consumed, or the node is not pending foreign enrollment", 409);
 
   const document = await env.DB.prepare(
     "SELECT revision, manifest_json, updated_at FROM node_documents WHERE node_id = ?",

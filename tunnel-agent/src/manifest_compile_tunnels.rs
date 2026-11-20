@@ -194,7 +194,7 @@ fn compile_wstunnel_server(spec: &WstunnelServer, binary: &Path) -> ProcessSpec 
             "--nb-worker-threads".to_owned(),
             spec.worker_threads.to_string(),
             "--restrict-http-upgrade-path-prefix".to_owned(),
-            spec.path_prefix.clone(),
+            wstunnel_prefix(&spec.id, &spec.path_prefix),
             "--tls-certificate".to_owned(),
             spec.tls_certificate.display().to_string(),
             "--tls-private-key".to_owned(),
@@ -224,7 +224,7 @@ fn compile_wstunnel_reverse(spec: &WstunnelReverse, binary: &Path) -> ProcessSpe
     }
     argv.extend([
         "--http-upgrade-path-prefix".to_owned(),
-        spec.endpoint.path_prefix.clone(),
+        wstunnel_prefix(&spec.id, &spec.endpoint.path_prefix),
         "--reverse-tunnel-connection-retry-max-backoff".to_owned(),
         "15s".to_owned(),
         "--remote-to-local".to_owned(),
@@ -238,6 +238,13 @@ fn compile_wstunnel_reverse(spec: &WstunnelReverse, binary: &Path) -> ProcessSpe
         workdir: None,
         restart: spec.restart.clone(),
     }
+}
+
+fn wstunnel_prefix(id: &str, path: &str) -> String {
+    if id.starts_with("owned-") {
+        return path.trim_start_matches('/').to_owned();
+    }
+    path.to_owned()
 }
 
 fn render_wstunnel_listener(spec: &WstunnelReverse) -> String {

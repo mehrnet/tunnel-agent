@@ -5,7 +5,8 @@ import { error, json } from "./http";
 import type { BundleRow, Env, NodeRow } from "./models";
 import { authorizeNode } from "./nodes";
 import { signApiPayload } from "./signing";
-import { activeBundle, audit, foreignClusterMember, foreignRelayAddresses, nodeById, nodeClusters, nodeDocument } from "./store";
+import { trackedBundle } from "./release-tracks";
+import { audit, foreignClusterMember, foreignRelayAddresses, nodeById, nodeClusters, nodeDocument } from "./store";
 import { filesOrigin, now } from "./validation";
 
 interface Relay {
@@ -21,13 +22,13 @@ export async function issueDomesticCapsule(env: Env, node: NodeRow): Promise<str
   const [controlKey, relays, amd64, arm64] = await Promise.all([
     clusterControlPublicKey(env, clusters[0].id),
     foreignRelayAddresses(env, clusters[0].id),
-    activeBundle(env, "amd64"),
-    activeBundle(env, "arm64"),
+    trackedBundle(env, node.id, "amd64"),
+    trackedBundle(env, node.id, "arm64"),
   ]);
   if (!amd64 || !arm64 || relays.length === 0) {
     throw new Error("domestic offline bootstrap requires active bundles and at least one foreign relay address");
   }
-  requireDomesticBundles(env, amd64, arm64);
+  requireDomesticBundles(amd64, arm64);
   const payload = JSON.stringify({
     v: 1,
     e: now() + capsuleTtl(env),
@@ -77,9 +78,8 @@ export async function handleRelayDomesticCapsule(
   }
 }
 
-function requireDomesticBundles(env: Env, amd64: BundleRow, arm64: BundleRow): void {
-  const expected = env.DOMESTIC_CAPSULE_BUNDLE_VERSION?.trim();
-  if (!expected || amd64.version !== expected || arm64.version !== expected ||
+function requireDomesticBundles(amd64: BundleRow, arm64: BundleRow): void {
+  if (amd64.version !== arm64.version ||
     !registeredDomesticUrls(amd64)?.length || !registeredDomesticUrls(arm64)?.length) {
     throw new Error("domestic bootstrap is awaiting matching active Iranian mirror bundles");
   }

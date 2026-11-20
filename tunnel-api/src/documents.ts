@@ -43,9 +43,11 @@ export async function replaceNodeDocument(
   const result = await env.DB.prepare(
     `UPDATE node_documents
         SET revision = ?, manifest_json = ?, updated_at = ?
-      WHERE node_id = ? AND revision = ?`,
+      WHERE node_id = ? AND revision = ?
+        AND NOT EXISTS (SELECT 1 FROM tunnel_intents t WHERE t.path_key IS NOT NULL
+                        AND node_documents.node_id IN (t.source_node_id,t.listener_node_id))`,
   ).bind(revision, manifestJson, updatedAt, node.id, current.revision).run();
-  if (result.meta.changes !== 1) throw new Error("server document changed concurrently; retry the command");
+  if (result.meta.changes !== 1) throw new Error("server document changed concurrently or is managed by the lane editor");
 
   await audit(env, "node.document_updated", {
     bytes: utf8Bytes(manifestJson),
@@ -97,6 +99,7 @@ function validateTunnel(value: unknown): void {
   if (typeof value.id !== "string" || value.id.length === 0 || value.id.length > 128) {
     throw new Error("each tunnel requires a bounded id");
   }
+  if (value.id.startsWith("owned-")) throw new Error("owned-* IDs are reserved for the lane editor");
 }
 
 function rejectProtectedValues(value: unknown, path: string): void {

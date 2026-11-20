@@ -1,20 +1,37 @@
 import { handleBootstrap, handleBundleActivation, handleBundleRelease } from "./bundles";
 import { handleRelayDomesticCapsule } from "./capsules";
 import { handleControlKey } from "./control";
+import { handleDomesticGrant, handleDomesticProof } from "./domestic-enrollment";
 import { handleHeartbeats } from "./heartbeats";
 import { error, json } from "./http";
 import type { Env } from "./models";
 import { handleEnroll, handleNodeDocument } from "./nodes";
 import { handleRelayDocuments } from "./relay";
+import { handleReleaseTrack } from "./release-tracks";
 import { handleTelegram } from "./telegram";
 import { handleRelayTelemetry, handleTelemetry } from "./telemetry";
 import { handleWebCluster, handleWebClusters } from "./web";
+import { webSessionCookie } from "./web-auth";
+import { handleWebNode } from "./web-nodes";
+import { handleWebTunnel } from "./web-tunnels";
+import { handleNodeLifecycle } from "./lifecycle";
 
 async function handleApi(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/api/health") return json({ ok: true, service: "tunnel-agent" });
   if (url.pathname === "/api/telegram/webhook") return handleTelegram(request, env, ctx);
   if (url.pathname === "/api/v1/web/clusters") return handleWebClusters(request, env);
+  if (url.pathname === "/api/v1/web/nodes") return handleWebNode(request, env);
+  const track = url.pathname.match(/^\/api\/v1\/web\/clusters\/([0-9a-f-]{36})\/release-track$/);
+  if (track) return handleReleaseTrack(request, env, track[1]);
+  const tunnel = url.pathname.match(/^\/api\/v1\/web\/clusters\/([0-9a-f-]{36})\/tunnels(?:\/([0-9a-f-]{36}))?$/);
+  if (tunnel) return handleWebTunnel(request, env, tunnel[1], tunnel[2]);
+  const lifecycle = url.pathname.match(/^\/api\/v1\/web\/nodes\/([0-9a-f-]{36})\/lifecycle$/);
+  if (lifecycle) return handleNodeLifecycle(request, env, lifecycle[1]);
+  const grant = url.pathname.match(/^\/api\/v1\/web\/nodes\/([0-9a-f-]{36})\/domestic-grant$/);
+  if (grant) return handleDomesticGrant(request, env, grant[1]);
+  const install = url.pathname.match(/^\/api\/v1\/web\/nodes\/([0-9a-f-]{36})\/install$/);
+  if (install) return handleWebNode(request, env, install[1]);
   if (url.pathname === "/api/v1/bootstrap") return handleBootstrap(request, env);
   if (url.pathname === "/api/v1/enroll") return handleEnroll(request, env);
   if (url.pathname === "/api/v1/admin/bundles/activate") return handleBundleActivation(request, env);
@@ -26,6 +43,8 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext): Pro
   if (controlKey) return handleControlKey(request, env, controlKey[1], controlKey[2]);
   const domesticCapsule = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/clusters\/([0-9a-f-]{36})\/domestic-nodes\/([0-9a-f-]{36})\/capsule$/);
   if (domesticCapsule) return handleRelayDomesticCapsule(request, env, domesticCapsule[1], domesticCapsule[2], domesticCapsule[3]);
+  const proof = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/domestic-enroll\/([0-9a-f-]{36})$/);
+  if (proof) return handleDomesticProof(request, env, proof[1], proof[2]);
   const relayDocuments = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/relay-documents$/);
   if (relayDocuments) return handleRelayDocuments(request, env, relayDocuments[1]);
   const heartbeats = url.pathname.match(/^\/api\/v1\/nodes\/([0-9a-f-]{36})\/heartbeats$/);
@@ -41,7 +60,15 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext): Pro
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    if (new URL(request.url).pathname.startsWith("/api/")) return handleApi(request, env, ctx);
+    if (new URL(request.url).pathname.startsWith("/api/")) {
+      const response = await handleApi(request, env, ctx);
+      const cookie = webSessionCookie(request);
+      if (!cookie) return response;
+      const headers = new Headers(response.headers);
+      headers.set("set-cookie", cookie);
+      headers.set("cache-control", "no-store");
+      return new Response(response.body, { status: response.status, headers });
+    }
     return error("not found", 404);
   },
 };

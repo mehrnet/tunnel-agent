@@ -4,7 +4,12 @@ set -eu
 
 : "${BUNDLE_VERSION:?set BUNDLE_VERSION, for example v0.4.0}"
 : "${BUNDLE_SOURCE_DIR:?set BUNDLE_SOURCE_DIR to the GitHub release download directory}"
-bundle_activate=${BUNDLE_ACTIVATE:-true}
+bundle_activate=${BUNDLE_ACTIVATE:-false}
+track=${BUNDLE_TRACK:-testing}
+case "$track" in
+  testing|stable) ;;
+  *) echo "BUNDLE_TRACK must be testing or stable" >&2; exit 2 ;;
+esac
 case "$bundle_activate" in
   true|false) ;;
   *) echo "BUNDLE_ACTIVATE must be true or false" >&2; exit 2 ;;
@@ -231,7 +236,7 @@ payload_file=$(mktemp)
 trap 'rm -f "$payload_file"' EXIT HUP INT TERM
 mkdir -p "$site_bundle_dir"
 
-printf '{"version":"%s","bundles":[\n' "$BUNDLE_VERSION" > "$payload_file"
+printf '{"version":"%s","track":"%s","bundles":[\n' "$BUNDLE_VERSION" "$track" > "$payload_file"
 bundle_count=0
 stage_bundle amd64 x86_64-unknown-linux-musl
 stage_bundle arm64 aarch64-unknown-linux-musl

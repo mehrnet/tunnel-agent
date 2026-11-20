@@ -171,7 +171,7 @@ async function applyManifestFromInput(env: Env, owner: OwnerRow, chatId: number,
   await sendFreshMenu(env, owner, chatId, { kind: "node", nodeId, returnClusterId, notice: `✅ نسخه ${updated.revision} اعمال شد.` });
 }
 
-async function installCommand(env: Env, owner: OwnerRow, node: NodeRow): Promise<string> {
+export async function installCommand(env: Env, owner: OwnerRow, node: NodeRow): Promise<string> {
   if (node.node_class === "domestic") {
     const capsule = await issueDomesticCapsule(env, node);
     await audit(env, "node.domestic_capsule_created", {}, { ownerId: owner.id, nodeId: node.id });

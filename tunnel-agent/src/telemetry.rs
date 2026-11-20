@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
-    net::{TcpStream, ToSocketAddrs},
+    net::{SocketAddr, TcpStream, ToSocketAddrs},
     path::Path,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -14,9 +14,10 @@ use crate::{
     agent_spec,
     identity::valid_uuid,
     manifest::Config,
-    release,
+    release, tunnel_probes,
 };
 
+const MAX_LANES: usize = 16;
 const MAX_RELAY_REPORTS: usize = 64;
 const MAX_TELEMETRY_BYTES: usize = 16_384;
 const MAX_RATE: u64 = 10_000_000_000;
@@ -233,41 +234,51 @@ fn observed_lanes(config: &Config) -> Vec<LaneTelemetry> {
         .filter(|lane| lane.selected)
         .map(|lane| lane.id)
         .collect();
-    config
+    let mut lanes: Vec<_> = config
         .agent
         .lanes
         .iter()
         .filter(|lane| selected.contains(&lane.id))
         .map(probe_lane)
-        .collect()
+        .collect();
+    lanes.extend(tunnel_probes::local_probes(config).take(MAX_LANES.saturating_sub(lanes.len())));
+    lanes
 }
 
 fn probe_lane(lane: &AgentLane) -> LaneTelemetry {
     let started = Instant::now();
     let endpoint = lane_endpoint(lane);
-    let probe = endpoint
-        .as_deref()
-        .and_then(resolve_endpoint)
-        .and_then(|address| TcpStream::connect_timeout(&address, Duration::from_secs(2)).ok());
-    match probe {
-        Some(stream) => {
-            drop(stream);
-            LaneTelemetry {
-                id: lane.id.clone(),
-                state: LaneState::Healthy,
-                probe_ms: Some(started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32),
-            }
-        }
-        None if endpoint.is_some() => LaneTelemetry {
-            id: lane.id.clone(),
-            state: LaneState::Degraded,
-            probe_ms: None,
-        },
+    match endpoint {
+        Some(endpoint) => probe_tcp(
+            lane.id.clone(),
+            resolve_endpoint(&endpoint),
+            started,
+            Duration::from_secs(2),
+        ),
         None => LaneTelemetry {
             id: lane.id.clone(),
             state: LaneState::Unknown,
             probe_ms: None,
         },
+    }
+}
+
+pub(crate) fn probe_tcp(
+    id: String,
+    address: Option<SocketAddr>,
+    started: Instant,
+    timeout: Duration,
+) -> LaneTelemetry {
+    let connected =
+        address.is_some_and(|value| TcpStream::connect_timeout(&value, timeout).is_ok());
+    LaneTelemetry {
+        id,
+        state: if connected {
+            LaneState::Healthy
+        } else {
+            LaneState::Degraded
+        },
+        probe_ms: connected.then(|| started.elapsed().as_millis().min(60_000) as u32),
     }
 }
 
@@ -457,7 +468,7 @@ fn valid_report(report: &TelemetryReport) -> bool {
         && report.host.memory_milli_percent <= 100_000
         && report.host.rx_bytes_per_sec <= MAX_RATE
         && report.host.tx_bytes_per_sec <= MAX_RATE
-        && report.lanes.len() <= 16
+        && report.lanes.len() <= MAX_LANES
         && report.lanes.iter().all(|lane| {
             !lane.id.is_empty()
                 && lane.id.len() <= 128

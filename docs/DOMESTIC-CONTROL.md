@@ -78,8 +78,34 @@ keys before allowing untrusted foreign membership.
 An enrolled foreign member may request `POST
 /api/v1/nodes/<foreign-node-id>/clusters/<cluster-id>/domestic-nodes/<domestic-node-id>/capsule`
 using its node bearer credential. The API permits this only when the caller is
-a foreign member and the active domestic node is the sole domestic member of
-that exact cluster. It returns a short-lived, API-signed bootstrap capsule and
+a foreign member and the active domestic node belongs only to that cluster.
+It returns a short-lived, API-signed bootstrap capsule and
 records an audit event. This endpoint exists for operator-driven recovery of a
 domestic node without putting an API credential on that node; it cannot modify
 the domestic desired document.
+
+### Confirming the enrolled identity
+
+Bootstrap installs the agent, but the server remains pending until identity
+confirmation. The owner pins a new Ed25519 public key obtained over a trusted
+administration connection to that host. Generate the key on the domestic
+server with `umask 077; openssl genpkey -algorithm ED25519 -out identity.pem`
+and export only the public key with
+`openssl pkey -in identity.pem -pubout -outform DER | openssl base64 -A`.
+In the pending server's inspector, enter that public key to issue a
+15-minute, one-time grant.
+
+An enrolled foreign member runs `tools/domestic-proof-relay.py PORT NODE_ID`
+on loopback. Map a separate domestic loopback port to that listener using the
+existing cluster's pinned HPN management host key and authorized control key.
+On the domestic server pass the grant via stdin to
+`tools/enroll-domestic.sh MAPPED_PORT /path/to/identity.pem`. The relay
+forwards the signed proof using its own API credential. It exits after the
+first success. Neither the domestic private key nor a foreign API credential
+crosses the management tunnel.
+
+Reinstall or rotate clears the enrolled identity and invalidates outstanding
+grants. Generate a fresh key and grant for re-enrollment. Retirement clears
+the identity and cluster memberships and rejects further proofs. These
+actions do not rotate the separate cluster SSH access key or erase an offline
+host. The proof exchange is operator-assisted; no agent rebuild is required.

@@ -147,15 +147,17 @@ it is not a second source of topology truth.
 
 An agent emits a bounded host sample at its configured poll interval: CPU and
 memory pressure, load average, aggregate non-loopback RX/TX, and the agent's
-own RSS. It also emits a connection probe for each selected lane. Host metrics
-are deliberately labelled as host-wide so unrelated workloads are visible
-without being attributed to a tunnel. A domestic node posts samples only to
+own RSS. The map uses the connector's TCP probe for a paired management lane.
+Supported customer lanes report a TCP check against the local listener
+(the TLS control listener for managed WSTunnel lanes), not payload forwarding
+or throughput. Heartbeats and probe results expire after three reporting
+intervals, accounting for the relay's cadence. Host RX/TX remains host-wide.
+A domestic node posts samples only to
 its loopback management seed endpoint; its foreign relay forwards them through
 its authenticated API credential. Domestic nodes never call the API directly.
 
-No-telemetry, pending, and stale-heartbeat states are rendered explicitly. A
-regular browser sees an instruction to open the bot rather than fixture data;
-`/web/?demo=1` is an explicitly labelled local visual-preview mode only.
+No-telemetry, pending, and stale-heartbeat states are rendered explicitly.
+Without Telegram authentication the map prompts users to open the bot.
 
 ### Desired State Publishing
 

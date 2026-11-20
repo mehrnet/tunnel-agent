@@ -7,6 +7,7 @@ use std::{
     process::Command,
 };
 
+use crate::manifest::{Config, NodeScope};
 use crate::seed_client::SeedSource;
 use crate::{
     identity::valid_uuid,
@@ -97,6 +98,26 @@ pub(crate) fn apply(root: &Path, source: &str, activate: bool) -> Result<SeedRes
     install_seeded_release(root, &source, &document, &index, &raw_index, activate)
 }
 
+pub(crate) async fn apply_configured(config: &Config) -> Result<Option<SeedResult>, String> {
+    if config.node_scope != NodeScope::Domestic {
+        return Err("only domestic agents may apply a peer-seeded bundle".to_owned());
+    }
+    let Some(seed_config) = config.agent.bundle_seed.as_ref() else {
+        return Ok(None);
+    };
+    let source = seed_config.source.clone();
+    let root = config
+        .bundle
+        .as_ref()
+        .and_then(|bundle| bundle.root.parent())
+        .ok_or_else(|| "bundle.root has no agent root directory".to_owned())?
+        .to_path_buf();
+    tokio::task::spawn_blocking(move || apply(&root, &source, true))
+        .await
+        .map_err(|error| format!("seed update task failed: {error}"))?
+        .map(Some)
+}
+
 pub(crate) fn restart_service(name: &str) -> Result<(), String> {
     if name.is_empty()
         || !name
@@ -125,7 +146,8 @@ fn load_serve_state(root: &Path, document_path: &Path) -> Result<ServeState, Str
         as_utf8(&document, "cached release document")?,
         &architecture,
     )?;
-    let current = root.join("current");
+    let current = fs::canonicalize(root.join("current"))
+        .map_err(|error| format!("cannot resolve seed release: {error}"))?;
     let index = fs::read(current.join(INDEX_NAME))
         .map_err(|error| format!("cannot read current bundle index: {error}"))?;
     if sha256_bytes(&index) != release.inventory_sha256 {
@@ -399,7 +421,7 @@ fn verify_installed_release(
     Ok(())
 }
 
-fn activate_release(root: &Path, release: &Path) -> Result<(), String> {
+pub(crate) fn activate_release(root: &Path, release: &Path) -> Result<(), String> {
     let next = root.join("current.next");
     let current = root.join("current");
     let _ = fs::remove_file(&next);

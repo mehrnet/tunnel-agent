@@ -30,6 +30,8 @@ jobs:
         working-directory: tunnel-api
       - run: npm run quality
         working-directory: tunnel-api
+      - run: node --test test/*.cjs
+        working-directory: tunnel-api
       - run: npm exec -- wrangler deploy --dry-run
         working-directory: tunnel-api
       - run: npm exec -- wrangler deploy --dry-run --config ../tunnel-files/wrangler.jsonc

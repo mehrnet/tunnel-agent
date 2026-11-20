@@ -13,11 +13,11 @@ use serde::Deserialize;
 use tokio::time::{MissedTickBehavior, interval};
 
 use crate::{
-    agent_control, agent_heartbeat,
+    agent_control, agent_heartbeat, foreign_update,
     identity::valid_uuid,
-    manifest::{self, Config, NodeScope},
+    manifest::{self, Config},
     relay,
-    runtime::{self, spawn_plan, start_plan, stop_plan},
+    runtime::{self, reconcile_plan, start_plan, stop_plan},
     seed, telemetry,
 };
 
@@ -200,12 +200,28 @@ async fn reconcile_online(
     let mut active_revision = read_revision(&revision_path)?;
     let mut etag = (active_revision != 0).then(|| format!("\"{active_revision}\""));
     let mut poll = polling_interval(poll_interval_secs);
+    let mut updates = polling_interval(300);
+    let mut updater = foreign_update::Poller::new();
     let mut telemetry_reporter = telemetry::Reporter::new();
     let shutdown = crate::runtime::wait_for_shutdown();
     tokio::pin!(shutdown);
 
     loop {
         tokio::select! {
+            _ = updates.tick() => {
+                updater.start(settings, &active_config, (&api_url, &node_id, &node_token));
+            }
+            result = updater.result() => {
+                match result {
+                    Ok(Some(version)) => {
+                        eprintln!("activated foreign bundle version={version}; restarting agent");
+                        stop_plan(&mut running).await;
+                        return Ok(());
+                    }
+                    Ok(None) => {}
+                    Err(error) => eprintln!("foreign update failed; retaining active bundle: {error}"),
+                }
+            }
             _ = &mut shutdown => {
                 eprintln!("shutdown signal received");
                 stop_plan(&mut running).await;
@@ -302,7 +318,7 @@ async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Resu
                     Ok(None) => {},
                     Err(error) => eprintln!("relay refresh failed; retaining revision={active_revision}: {error}"),
                 }
-                match apply_bundle_seed(&config).await {
+                match seed::apply_configured(&config).await {
                     Ok(Some(result)) if result.changed => {
                         eprintln!("activated seeded bundle version={}; restarting agent", result.version);
                         stop_plan(&mut running).await;
@@ -407,26 +423,6 @@ async fn request_document(
     .map_err(|error| format!("document refresh task failed: {error}"))?
 }
 
-async fn apply_bundle_seed(config: &Config) -> Result<Option<seed::SeedResult>, String> {
-    if config.node_scope != NodeScope::Domestic {
-        return Err("only domestic agents may apply a peer-seeded bundle".to_owned());
-    }
-    let Some(seed_config) = config.agent.bundle_seed.as_ref() else {
-        return Ok(None);
-    };
-    let source = seed_config.source.clone();
-    let root = config
-        .bundle
-        .as_ref()
-        .and_then(|bundle| bundle.root.parent())
-        .ok_or_else(|| "bundle.root has no agent root directory".to_owned())?
-        .to_path_buf();
-    tokio::task::spawn_blocking(move || seed::apply(&root, &source, true))
-        .await
-        .map_err(|error| format!("seed update task failed: {error}"))?
-        .map(Some)
-}
-
 async fn apply_relay_document(
     settings: &AgentSettings,
     running: &mut crate::runtime::RunningPlan,
@@ -481,8 +477,12 @@ async fn apply_document(
         "applying document revision={} replacing revision={active_revision}",
         document.revision
     );
-    stop_plan(running).await;
-    *running = spawn_plan(candidate_plan);
+    reconcile_plan(
+        running,
+        candidate_plan,
+        active_config.agent != candidate_config.agent,
+    )
+    .await;
     manifest::write_config_atomic(
         &settings.state_dir.join("document-revision"),
         &document.revision.to_string(),

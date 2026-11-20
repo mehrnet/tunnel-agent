@@ -1,6 +1,7 @@
 import type { Architecture, Env, NodeClass } from "./models";
 
 export const BUNDLE_ROOT = "/opt/tunnel-agent/current";
+export const DEFAULT_REPORT_INTERVAL_SECONDS = 60;
 export const NODE_NAME = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;
 export const HEX_64 = /^[a-f0-9]{64}$/;
 export const BUNDLE_VERSION = /^[0-9A-Za-z._+-]+$/;

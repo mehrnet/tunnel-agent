@@ -2,13 +2,33 @@ import type { Env, OwnerRow } from "./models";
 import { ownerForTelegram } from "./store";
 
 const MAX_AGE_SECONDS = 60 * 60;
+const sessions = new WeakMap<Request, string>();
+
+export function webSessionCookie(request: Request): string | undefined { return sessions.get(request); }
 
 export async function ownerFromTelegram(request: Request, env: Env): Promise<OwnerRow | null> {
   const initData = request.headers.get("x-telegram-init-data");
   const token = env.TELEGRAM_BOT_TOKEN;
-  if (!initData || !token) return null;
-  const user = await verifyInitData(initData, token);
+  if (!token) return null;
+  const session = request.headers.get("cookie")?.match(/(?:^|;\s*)__Host-tunnel-session=([^;]+)/)?.[1];
+  const restored = session ? await restoreSession(session, token) : null;
+  if (restored) return ownerForTelegram(env, restored.id);
+  const user = initData ? await verifyInitData(initData, token) : null;
+  if (user) {
+    const payload = `${user.id}.${Math.floor(Date.now() / 1000) + 43200}`;
+    const signature = hex(await hmac(`tunnel-web-session:${token}`, payload));
+    sessions.set(request, `__Host-tunnel-session=${payload}.${signature}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=43200`);
+  }
   return user ? ownerForTelegram(env, user.id, user.username) : null;
+}
+
+async function restoreSession(raw: string, token: string): Promise<{ id: number } | null> {
+  const [id, expiry, signature, extra] = raw.split(".");
+  if (extra || !signature || !Number.isSafeInteger(Number(id)) || Number(id) < 1 || !Number.isSafeInteger(Number(expiry))) return null;
+  const now = Math.floor(Date.now() / 1000);
+  if (Number(expiry) <= now || Number(expiry) > now + 43200) return null;
+  const expected = hex(await hmac(`tunnel-web-session:${token}`, `${id}.${expiry}`));
+  return equalHex(expected, signature) ? { id: Number(id) } : null;
 }
 
 async function verifyInitData(initData: string, token: string): Promise<{ id: number; username?: string } | null> {

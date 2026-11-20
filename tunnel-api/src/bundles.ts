@@ -1,12 +1,14 @@
 import { error, json, message, parseJson } from "./http";
 import type { Architecture, BundleActivation, BundleActivationEntry, BundleRow, Env, NodeClass } from "./models";
-import { activeBundle, nodeById, requireGrant } from "./store";
+import { isTestingNode, trackedBundle } from "./release-tracks";
+import { nodeById, requireGrant } from "./store";
 import { authorizeNode } from "./nodes";
 import { base64Url } from "./encoding";
 import { signApiPayload } from "./signing";
 import { BUNDLE_VERSION, equalSecret, filesOrigin, HEX_64, now, validArchitecture } from "./validation";
 
 const MAX_DOMESTIC_MIRRORS = 4;
+const RELEASE_VERSION = /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.\d$/;
 
 function bundleTarget(architecture: Architecture): string {
   return architecture === "amd64" ? "x86_64-unknown-linux-musl" : "aarch64-unknown-linux-musl";
@@ -72,7 +74,9 @@ function parseBundleEntry(
 
 function parseBundleActivation(body: Record<string, unknown> | null): BundleActivation | null {
   const version = typeof body?.version === "string" ? body.version : "";
-  if (!BUNDLE_VERSION.test(version) || !Array.isArray(body?.bundles) || body.bundles.length !== 2) return null;
+  const track = body?.track;
+  if ((track !== "stable" && track !== "testing") || !RELEASE_VERSION.test(version) ||
+    !Array.isArray(body?.bundles) || body.bundles.length !== 2) return null;
 
   const expectedArchitectures = new Set<Architecture>(["amd64", "arm64"]);
   const bundles: BundleActivationEntry[] = [];
@@ -81,7 +85,7 @@ function parseBundleActivation(body: Record<string, unknown> | null): BundleActi
     if (!entry) return null;
     bundles.push(entry);
   }
-  return expectedArchitectures.size === 0 ? { version, bundles } : null;
+  return expectedArchitectures.size === 0 ? { version, bundles, track } : null;
 }
 
 function bootstrapEnv(bundle: BundleRow, nodeClass: NodeClass, origin: string): string {
@@ -109,7 +113,7 @@ export async function handleBootstrap(request: Request, env: Env): Promise<Respo
   if (!grant || !validArchitecture(requestedArchitecture)) {
     return error("invalid enrollment grant or architecture", 401);
   }
-  const bundle = await activeBundle(env, requestedArchitecture);
+  const bundle = await trackedBundle(env, grant.id, requestedArchitecture);
   if (!bundle) return error(`no active ${requestedArchitecture} tunnel-agent bundle`, 503);
   try {
     return message(bootstrapEnv(bundle, grant.node_class, filesOrigin(env)));
@@ -126,24 +130,34 @@ export async function handleBundleActivation(request: Request, env: Env): Promis
 
   const activation = parseBundleActivation(await parseJson(request));
   if (!activation) return error("invalid bundle activation payload", 400);
+  if (activation.track === "stable" && activation.bundles.some((bundle) => !bundle.domestic_urls.length)) {
+    return error("stable promotion requires domestic mirrors for both architectures", 400);
+  }
+  if (activation.track === "stable") {
+    const tested = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM bundle_releases WHERE version=? AND (testing=1 OR active=1)",
+    ).bind(activation.version).first<number>("count");
+    if (tested !== 2) return error("Publish this version to testing before promoting it to stable", 409);
+  }
 
   const timestamp = now();
   const statements: D1PreparedStatement[] = [];
+  const column = activation.track === "stable" ? "active" : "testing";
   for (const bundle of activation.bundles) {
     statements.push(
-      env.DB.prepare("UPDATE bundle_releases SET active = 0 WHERE architecture = ? AND active = 1")
+      env.DB.prepare(`UPDATE bundle_releases SET ${column}=0 WHERE architecture=? AND ${column}=1`)
         .bind(bundle.architecture),
       env.DB.prepare(
         `INSERT INTO bundle_releases
-          (version, architecture, sha256, inventory_sha256, public_url, domestic_url, domestic_urls, active, created_at)
+          (version, architecture, sha256, inventory_sha256, public_url, domestic_url, domestic_urls, ${column}, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
          ON CONFLICT(version, architecture) DO UPDATE SET
-           sha256 = excluded.sha256,
-           inventory_sha256 = excluded.inventory_sha256,
+           sha256 = CASE WHEN sha256=excluded.sha256 AND inventory_sha256 IS excluded.inventory_sha256
+                         THEN sha256 ELSE NULL END,
            public_url = excluded.public_url,
            domestic_url = excluded.domestic_url,
            domestic_urls = excluded.domestic_urls,
-           active = 1,
+           ${column} = 1,
            created_at = excluded.created_at`,
       ).bind(
         activation.version,
@@ -157,17 +171,19 @@ export async function handleBundleActivation(request: Request, env: Env): Promis
       ),
     );
   }
+  statements.push(env.DB.prepare("DELETE FROM seed_canary_releases"));
   statements.push(env.DB.prepare(
     `INSERT INTO audit_events (id, owner_id, node_id, cluster_id, action, detail_json, created_at)
      VALUES (?, NULL, NULL, NULL, ?, ?, ?)`,
   ).bind(
     crypto.randomUUID(),
     "bundle.activated",
-    JSON.stringify({ version: activation.version, architectures: activation.bundles.map((bundle) => bundle.architecture) }),
+    JSON.stringify({ version: activation.version, track: activation.track }),
     timestamp,
   ));
-  await env.DB.batch(statements);
-  return json({ ok: true, version: activation.version });
+  try { await env.DB.batch(statements); }
+  catch { return error("Release metadata conflicts with an immutable version", 409); }
+  return json({ ok: true, version: activation.version, track: activation.track });
 }
 
 export async function handleBundleRelease(request: Request, env: Env, nodeId: string): Promise<Response> {
@@ -180,8 +196,9 @@ export async function handleBundleRelease(request: Request, env: Env, nodeId: st
   const architecture = new URL(request.url).searchParams.get("architecture") ?? undefined;
   if (!validArchitecture(architecture)) return error("invalid architecture", 400);
 
-  const bundle = await activeBundle(env, architecture);
-  if (!bundle || !bundle.inventory_sha256 || !HEX_64.test(bundle.inventory_sha256)) {
+  const bundle = await seedRelease(env, nodeId, architecture);
+  if (!bundle || !BUNDLE_VERSION.test(bundle.version) || !HEX_64.test(bundle.sha256) ||
+    !bundle.inventory_sha256 || !HEX_64.test(bundle.inventory_sha256)) {
     return error(`no seedable ${architecture} tunnel-agent bundle`, 503);
   }
   const payload = JSON.stringify({
@@ -201,4 +218,13 @@ export async function handleBundleRelease(request: Request, env: Env, nodeId: st
   } catch (reason) {
     return error(reason instanceof Error ? reason.message : "release signing failed", 503);
   }
+}
+
+async function seedRelease(env: Env, nodeId: string, architecture: Architecture) {
+  const release = await trackedBundle(env, nodeId, architecture);
+  if (!await isTestingNode(env, nodeId)) return release;
+  const canary = await env.DB.prepare(
+    "SELECT architecture,version,sha256,inventory_sha256 FROM seed_canary_releases WHERE node_id=? AND architecture=?",
+  ).bind(nodeId, architecture).first<Pick<BundleRow, "architecture" | "version" | "sha256" | "inventory_sha256">>();
+  return canary ?? release;
 }

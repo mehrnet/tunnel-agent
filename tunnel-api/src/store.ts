@@ -53,7 +53,11 @@ export async function clusterById(env: Env, ownerId: string, clusterId: string):
 }
 
 export async function clustersForOwner(env: Env, ownerId: string): Promise<ClusterRow[]> {
-  const rows = await env.DB.prepare("SELECT id, name FROM clusters WHERE owner_id = ? ORDER BY name")
+  const rows = await env.DB.prepare(
+    `SELECT c.id,c.name,CASE WHEN t.cluster_id IS NULL THEN 'stable' ELSE 'testing' END AS release_track
+     FROM clusters c LEFT JOIN owner_testing_clusters t ON t.cluster_id=c.id AND t.owner_id=c.owner_id
+     WHERE c.owner_id=? ORDER BY c.name`,
+  )
     .bind(ownerId)
     .all<ClusterRow>();
   return rows.results;
@@ -77,12 +81,12 @@ export async function nodeByName(env: Env, ownerId: string, name: string): Promi
     .first<NodeRow>();
 }
 
-export async function nodeForOwnerById(env: Env, ownerId: string, nodeId: string): Promise<NodeRow | null> {
+export async function nodeForOwnerById(env: Env, ownerId: string, nodeId: string) {
   return env.DB.prepare(
-    `SELECT n.id, n.name, n.node_class, n.address, n.status, h.observed_at AS last_heartbeat_at
+    `SELECT n.id, n.name, n.node_class, n.address, n.status, n.public_key, n.enrolled_at, h.observed_at AS last_heartbeat_at
        FROM nodes n LEFT JOIN node_heartbeats h ON h.node_id = n.id
       WHERE n.owner_id = ? AND n.id = ?`,
-  ).bind(ownerId, nodeId).first<NodeRow>();
+  ).bind(ownerId, nodeId).first<NodeRow & { public_key: string | null; enrolled_at: number | null }>();
 }
 
 export async function createNodeForOwner(

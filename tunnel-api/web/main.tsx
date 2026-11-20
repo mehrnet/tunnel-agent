@@ -7,6 +7,7 @@ import "./styles/panels.css";
 import "./styles/topology.css";
 import "./styles/routes.css";
 import "./styles/responsive.css";
+import "./styles/workspace.css";
 
 const root = document.getElementById("root");
 

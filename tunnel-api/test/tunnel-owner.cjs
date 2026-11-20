@@ -1,0 +1,198 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const { readFileSync, readdirSync, writeFileSync, mkdirSync } = require("node:fs");
+const { createHash, createHmac, randomUUID } = require("node:crypto");
+const { join } = require("node:path");
+const { getPlatformProxy } = require("wrangler");
+const { build } = require("esbuild");
+
+const bot = "integration-test-token";
+
+async function verifyLaneProbe(env, worker, readCluster, listener, id) {
+  const token = randomUUID();
+  const hash = value => createHash("sha256").update(value).digest("hex");
+  await env.DB.prepare("UPDATE node_credentials SET secret_hash=? WHERE node_id=?").bind(hash(token), listener).run();
+  const sampledAt = Math.floor(Date.now() / 1000);
+  const response = await worker.fetch(new Request(`https://test.invalid/api/v1/nodes/${listener}/telemetry`, {
+    method: "POST", headers: { authorization: `Bearer ${listener}.${token}` },
+    body: JSON.stringify({
+      sampled_at: sampledAt,
+      host: {
+        cpu_milli_percent: 1200, memory_milli_percent: 42000, load_1_milli: 10,
+        rx_bytes_per_sec: 12, tx_bytes_per_sec: 7, agent_rss_bytes: 4096,
+      },
+      lanes: [{ id: "tunnel" + hash(`owned-${id}`), state: "healthy", probe_ms: 0 }],
+    }),
+  }), env, {});
+  assert.equal(response.status, 200, await response.text());
+  const snapshot = await readCluster();
+  const [lane] = snapshot.lanes;
+  assert.equal(lane.state, "healthy");
+  assert.equal(lane.probe_scope, "local_control");
+  assert.equal(lane.probe_ms, 0);
+  assert.equal(lane.observed_at, sampledAt);
+  assert.equal(lane.fresh_until, sampledAt + 180);
+  assert.equal(snapshot.nodes.find(node => node.id === listener).heartbeat_expires_at, sampledAt + 180);
+  await env.DB.prepare("UPDATE lane_telemetry SET sampled_at=? WHERE node_id=?").bind(sampledAt - 1800, listener).run();
+  const outdated = (await readCluster()).lanes[0];
+  assert.equal(outdated.state, "unknown");
+  assert.equal(outdated.probe_ms, null);
+}
+
+function telegram(user) {
+  const params = new URLSearchParams({ auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify({ id: user }) });
+  const key = createHmac("sha256", "WebAppData").update(bot).digest();
+  params.set("hash", createHmac("sha256", key).update([...params].map(([k,v]) => k+"="+v).join("\n")).digest("hex"));
+  return params.toString();
+}
+
+async function verifyReleaseScope(worker, env, call, cluster, otherCluster, scoped, other) {
+  const { privateKey, publicKey } = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
+  env.CAPSULE_SIGNING_PRIVATE_KEY = Buffer.from(await crypto.subtle.exportKey("pkcs8", privateKey)).toString("base64");
+  const digest = "a".repeat(64);
+  const run = (sql, ...args) => env.DB.prepare(sql).bind(...args).run();
+  await run("INSERT INTO bundle_releases(version,architecture,sha256,inventory_sha256,public_url,active,created_at) VALUES('v1','amd64',?,?,'/base',1,0)", digest, digest);
+  const track = id => "/clusters/"+id+"/release-track";
+  assert.equal((await call(track(cluster),{track:"testing"},102)).status,404);
+  assert.equal((await call(track(cluster),{track:"testing"})).status,200);
+  await run("INSERT INTO seed_canary_releases VALUES(?,'amd64','v2-canary',?,?)", scoped, digest, digest);
+  const auth = new Map();
+  for (const id of [scoped, other]) {
+    const secret = randomUUID();
+    const hash = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret))).toString("hex");
+    await run("INSERT INTO node_credentials VALUES(?,?,0,0)", id, hash);
+    auth.set(id, id+"."+secret);
+  }
+  async function gets(id, version) {
+    const path = "https://test.invalid/api/v1/nodes/"+id+"/bundle-release?architecture=amd64";
+    assert.equal((await worker.fetch(new Request(path), env, {})).status,401);
+    const reply = await worker.fetch(new Request(path,{headers:{authorization:"Bearer "+auth.get(id)}}), env, {});
+    assert.equal(reply.status,200);
+    const { p, s } = JSON.parse((await reply.json()).envelope);
+    const payload = Buffer.from(p,"base64url");
+    assert(await crypto.subtle.verify("Ed25519",publicKey,Buffer.from(s,"base64url"),payload));
+    assert.equal(JSON.parse(payload).b,version);
+  }
+  await gets(scoped, "v2-canary");
+  await gets(other, "v1");
+  await run("INSERT INTO cluster_nodes VALUES(?,?,'foreign',0)",otherCluster,other);
+  await gets(scoped, "v1");
+  await run("DELETE FROM cluster_nodes WHERE cluster_id=?",otherCluster);
+  assert.equal((await call(track(otherCluster),{track:"testing"})).status,200);
+  await gets(scoped, "v1");
+  const flags = (await (await call("/clusters")).json()).clusters.filter(c => c.release_track === "testing");
+  assert.deepEqual(flags.map(c => c.id),[otherCluster]);
+
+  env.BUNDLE_PUBLISH_TOKEN = "release-test-token";
+  const activate = (track, bundles, version = "v0.5.0") => worker.fetch(new Request("https://test.invalid/api/v1/admin/bundles/activate",{
+    method:"POST", headers:{authorization:"Bearer "+env.BUNDLE_PUBLISH_TOKEN},
+    body:JSON.stringify({track,version,bundles}),
+  }), env, {});
+  const bundles = [["amd64","x86_64"],["arm64","aarch64"]].map(([architecture,target])=>({
+    architecture, sha256:digest, inventory_sha256:digest,
+    public_url:`/bundles/v0.5.0/tunnel-agent-v0.5.0-${target}-unknown-linux-musl.tar.gz.parts`,
+    domestic_urls:["https://mirror.example/bundle.parts"],
+  }));
+  assert.equal((await activate("stable",bundles)).status,409);
+  assert.equal((await activate("testing",bundles,"v0.5.10")).status,400);
+  assert.equal((await activate("testing",bundles)).status,200);
+  await gets(scoped,"v1");
+  assert.equal((await call(track(cluster),{track:"testing"})).status,200);
+  await gets(scoped,"v0.5.0");
+  assert.equal((await activate("stable",[{...bundles[0],sha256:"b".repeat(64)},bundles[1]])).status,409);
+  assert.equal((await call(track(cluster),{track:"stable"})).status,200);
+  await gets(scoped,"v1");
+  assert.equal((await activate("stable",bundles)).status,200);
+  await gets(scoped,"v0.5.0");
+}
+
+test("worker creates and controls a paired lane without exposing its capability", async () => {
+  const platform = await getPlatformProxy({ persist: false });
+  try {
+    const env = { ...platform.env, TELEGRAM_BOT_TOKEN: bot, MANAGED_TUNNEL_ACTIVATION: "0" };
+    const bundle = await build({ entryPoints: ["src/worker.ts"], bundle: true, format: "esm", write: false });
+    const { default: worker } = await import("data:text/javascript;base64," + Buffer.from(bundle.outputFiles[0].contents).toString("base64"));
+    for (const name of readdirSync("migrations").filter(n => n.endsWith(".sql")).sort()) {
+      const sql = readFileSync("migrations/" + name, "utf8").replace(/^\s*--.*$/gm, "");
+      await env.DB.batch(sql.split(";").map(s => s.trim()).filter(Boolean).map(s => env.DB.prepare(s)));
+    }
+    const call = (path, body, user = 101) => worker.fetch(new Request("https://test.invalid/api/v1/web"+path, {
+      method: body ? "POST" : "GET", headers: { "x-telegram-init-data": telegram(user) }, body: body && JSON.stringify(body),
+    }), env, {});
+    const { cluster } = await (await call("/clusters", { name: "isolated" })).json();
+    const { cluster: otherCluster } = await (await call("/clusters", { name: "other" })).json();
+    const path = "/clusters/"+cluster.id;
+    async function node(name) {
+      const reply = await call("/nodes", { name, cluster_id: cluster.id, address: "localhost", role: "foreign" });
+      assert.equal(reply.status, 200);
+      return (await reply.json()).node.id;
+    }
+    const source = await node("source");
+    const listener = await node("listener");
+    const docs = () => env.DB.prepare("SELECT revision,manifest_json FROM node_documents ORDER BY node_id").all();
+    const fixture = process.env.TUNNEL_TEST_MANIFEST_DIR;
+    async function recordPhase(phase) {
+      if (!fixture) return;
+      const rows = await env.DB.prepare("SELECT node_id,revision,manifest_json FROM node_documents").all();
+      const pair = Object.fromEntries(rows.results.map(row => [row.node_id === source ? "client" : "server",
+        { revision:row.revision, manifest:JSON.parse(row.manifest_json) }]));
+      mkdirSync(fixture,{recursive:true});
+      writeFileSync(join(fixture,phase+".json"),JSON.stringify(pair),{mode:0o600});
+    }
+    const type = process.env.TUNNEL_TEST_LISTENER === "socks5" ? "socks5" : "tcp";
+    const config = { source_node_id: source, listener_node_id: listener, listener_type:type, transport:"wstunnel",
+      destination_host:"127.0.0.1", destination_port:31401, listener_port:31402, control_port:31403 };
+    assert.equal((await call(path+"/tunnels", config, 102)).status,404);
+    const attempts = await Promise.all([call(path+"/tunnels", config), call(path+"/tunnels", config)]);
+    assert.deepEqual(attempts.map(r => r.status).sort(),[201,409]);
+    const created = await attempts.find(r => r.status === 201).json();
+    await recordPhase("draft");
+    const lane = path+"/tunnels/"+created.id;
+    assert.equal((await call(path+"/tunnels", { ...config, listener_port:config.control_port, control_port:31404 })).status,409);
+    assert.equal((await call(lane, { action:"enable", revision:1 })).status,409);
+    assert.deepEqual((await docs()).results.map(row=>row.revision),[1,1]);
+    env.MANAGED_TUNNEL_ACTIVATION = "1";
+    assert.equal((await call(lane, { action:"enable", revision:1 })).status,409);
+    await env.DB.prepare("UPDATE nodes SET status='enrolled'").run();
+    await verifyReleaseScope(worker,env,call,cluster.id,otherCluster.id,source,listener);
+    const enabled = await call(lane,{ action:"enable",revision:1 });
+    assert.equal(enabled.status,200,await enabled.text());
+    await recordPhase("enabled");
+    const before = (await docs()).results.map(row=>JSON.parse(row.manifest_json));
+    const key = before[0].tunnels[0].endpoint?.path_prefix ?? before[0].tunnels[0].path_prefix;
+    assert.equal((await call(lane,{ action:"disable",revision:1 })).status,409);
+    assert.equal((await call(lane,{ action:"restart",revision:2 })).status,200);
+    await recordPhase("restarted");
+    const snapshot = await (await call(path)).json();
+    assert.equal(snapshot.lanes.length,1);
+    assert.equal(snapshot.lanes[0].managed.enabled,true);
+    assert.equal(snapshot.lanes[0].transport, "wstunnel");
+    assert.equal(snapshot.lanes[0].direction, "reverse");
+    assert.equal(snapshot.lanes[0].priority, null);
+    assert.equal(snapshot.lanes[0].local_listener, `${type} 127.0.0.1:31402`);
+    assert.equal(snapshot.lanes[0].state, "unknown");
+    assert(!JSON.stringify(snapshot).includes(key));
+    await verifyLaneProbe(env, worker, async () => (await call(path)).json(), listener, created.id);
+    const changed = (await docs()).results.map(row=>JSON.parse(row.manifest_json));
+    const client = changed.find(doc => doc.tunnels[0].endpoint);
+    const server = changed.find(doc => doc.tunnels[0].path_prefix);
+    assert.notEqual(client.tunnels[0].endpoint.path_prefix,key);
+    assert.equal(client.tunnels[0].endpoint.path_prefix,server.tunnels[0].path_prefix);
+    if (process.env.TUNNEL_TEST_MANIFEST_DIR) {
+      mkdirSync(process.env.TUNNEL_TEST_MANIFEST_DIR,{ recursive:true });
+      for (const [name, doc] of Object.entries({ client,server })) {
+        writeFileSync(join(process.env.TUNNEL_TEST_MANIFEST_DIR,name+".json"),JSON.stringify(doc),{ mode:0o600 });
+      }
+    }
+    const edited = await call(lane,{ action:"destination",revision:3,destination_host:"127.0.0.1",destination_port:31404 });
+    assert.equal(edited.status,type === "tcp" ? 200 : 400);
+    await recordPhase("edited");
+    const revision = type === "tcp" ? 4 : 3;
+    assert.equal((await call(lane,{ action:"remove",revision })).status,409);
+    assert.equal((await call(lane,{ action:"disable",revision })).status,200);
+    await recordPhase("disabled");
+    assert.equal((await call(lane,{ action:"remove",revision:revision+1 })).status,200);
+    await recordPhase("removed");
+    assert((await docs()).results.every(row=>JSON.parse(row.manifest_json).tunnels.length===0));
+  } finally { await platform.dispose(); }
+});

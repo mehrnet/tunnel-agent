@@ -63,6 +63,7 @@ pub(crate) struct ReleaseDocument {
     pub(crate) architecture: String,
     pub(crate) version: String,
     pub(crate) inventory_sha256: String,
+    pub(crate) archive_sha256: String,
 }
 
 pub(crate) fn cache_release_document(
@@ -102,7 +103,7 @@ pub(crate) fn cache_seed_release_document(
     Ok(true)
 }
 
-fn fetch_release_document(
+pub(crate) fn fetch_release_document(
     api_url: &str,
     node_id: &str,
     node_token: &str,
@@ -118,6 +119,7 @@ fn fetch_release_document(
     }
     let response = Client::builder()
         .redirect(Policy::none())
+        .timeout(std::time::Duration::from_secs(20))
         .build()
         .map_err(|error| format!("cannot build release client: {error}"))?
         .get(endpoint)
@@ -215,6 +217,7 @@ fn verify_release_document_with_key(
         architecture: payload.a,
         version: payload.b,
         inventory_sha256: payload.i,
+        archive_sha256: payload.h,
     })
 }
 
@@ -306,7 +309,7 @@ pub(crate) fn set_mode(_: &Path, _: u32) -> Result<(), String> {
     Ok(())
 }
 
-fn sha256_file(path: &Path) -> Result<String, String> {
+pub(crate) fn sha256_file(path: &Path) -> Result<String, String> {
     let mut file =
         File::open(path).map_err(|error| format!("cannot open {}: {error}", path.display()))?;
     let mut hasher = Sha256::new();
@@ -388,6 +391,7 @@ mod tests {
             architecture: "amd64".to_owned(),
             version: "v1".to_owned(),
             inventory_sha256: sha256_bytes(index.as_bytes()),
+            archive_sha256: "0".repeat(64),
         };
         assert!(index_matches_release(index.as_bytes(), &release).expect("matching inventory"));
 
