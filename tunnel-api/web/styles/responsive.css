@@ -1,191 +1,70 @@
-@media (min-width: 1100px) {
-  .app-shell { grid-template-columns: minmax(0, 1fr) 250px; }
-
-  .ops-rail {
-    position: sticky;
-    top: 0;
-    grid-column: 2;
-    grid-row: 1;
-    height: 100dvh;
-    padding: 22px 18px;
-    border-right: 1px solid var(--edge);
-    border-bottom: 0;
-  }
-
-  .app-workspace {
-    grid-column: 1;
-    grid-row: 1;
-    width: 100%;
-    max-width: 1560px;
-    margin-left: auto;
-    padding: 26px 28px 42px;
-  }
-
-  .observatory-grid {
-    grid-template-columns: minmax(0, 1fr) 330px;
-    align-items: start;
-  }
-
-  .triage-grid { grid-template-columns: 1fr 1fr; }
-
-  .triage-column + .triage-column {
-    border-top: 0;
-    border-right: 1px solid var(--edge);
-  }
+@media (max-width: 900px) {
+  .app-shell { --gutters: 16px; }
+  .cluster-overview__stats > div { padding-inline: 12px; }
+  .workbench-grid { grid-template-columns: minmax(0, 1fr) minmax(284px, 35%); }
+  .topology-panel .workspace-panel-heading { align-items: start; flex-direction: column; }
+  .map-legend { justify-content: start; }
 }
 
-@media (min-width: 720px) and (max-width: 1099px) {
-  .ops-rail {
-    display: grid;
-    grid-template-columns: minmax(180px, 0.9fr) minmax(150px, 0.8fr) minmax(215px, 1.2fr) minmax(0, 1fr);
-    gap: 0 18px;
-    align-items: start;
-    padding: 16px 22px;
-  }
-
-  .rail-brand,
-  .rail-connection,
-  .cluster-bar,
-  .rail-summary,
-  .rail-legend {
-    min-height: 86px;
-    padding: 0;
-    border-bottom: 0;
-  }
-
-  .rail-brand,
-  .rail-connection,
-  .cluster-bar {
-    border-inline-end: 1px solid var(--edge);
-  }
-
-  .rail-connection,
-  .cluster-bar,
-  .rail-summary {
-    padding-inline-start: 18px;
-  }
-
-  .rail-legend,
-  .rail-source {
-    display: none;
-  }
-
-  .app-workspace { padding: 22px; }
+@media (max-width: 900px) {
+  .app-shell { --gutters: 12px; }
+  .masthead { padding-block: 9px; }
+  .masthead__brand { gap: 8px; }
+  .masthead__mark { width: 34px; height: 34px; }
+  .masthead__mark svg { width: 24px; height: 24px; }
+  .masthead h1 { font-size: 23px; }
+  .masthead p { font-size: 8px; }
+  .masthead__context { font-size: 0; }
+  .masthead__context svg { width: 20px; height: 20px; }
+  .cluster-tabs { gap: 7px; }
+  .cluster-tabs__caption { display: none; }
+  .cluster-tabs__list { min-height: 43px; }
+  .cluster-tabs__list button { padding-inline: 11px; font-size: 13px; }
+  .add-menu > button { width: 36px; height: 36px; }
+  .app-workspace { padding-block: 10px 12px; }
+  .workbench { grid-template-rows: auto auto minmax(0, 1fr); gap: 8px; }
+  .cluster-overview { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; padding: 9px 11px; min-height: 0; }
+  .cluster-overview__identity { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 8px; align-items: baseline; }
+  .cluster-overview__identity > .section-label { grid-column: 1 / -1; }
+  .cluster-overview h2 { margin: 0; font-size: 25px; }
+  .cluster-overview__snapshot { margin: 0; font-size: 9px; }
+  .cluster-overview__stats { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-top: 8px; border-top: 1px solid var(--edge); }
+  .cluster-overview__stats > div { gap: 4px; padding-inline: 8px 3px; }
+  .cluster-overview__stats > div:first-child { padding-left: 0; border: 0; }
+  .cluster-overview__stats dt { gap: 4px; font-size: 9px; }
+  .cluster-overview__stats dt svg { width: 12px; height: 12px; }
+  .cluster-overview__stats dd { gap: 2px 4px; }
+  .cluster-overview__stats dd strong { font-size: 23px; }
+  .cluster-overview__stats dd span { font-size: 10px; }
+  .workbench-switch { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; padding: 3px; border: 1px solid var(--edge); background: var(--surface); }
+  .workbench-switch button { display: flex; min-height: 34px; align-items: center; justify-content: center; gap: 6px; padding: 4px 8px; border: 1px solid transparent; border-radius: 2px; color: var(--text-soft); background: transparent; font-size: 13px; font-weight: 600; }
+  .workbench-switch button[aria-pressed="true"] { border-color: var(--edge); color: var(--brand); background: var(--brand-soft); }
+  .workbench-switch svg { width: 15px; height: 15px; }
+  .workbench-grid { grid-template-columns: minmax(0, 1fr); }
+  .workbench-grid[data-view="map"] > .inventory-panel, .workbench-grid[data-view="inventory"] > .topology-frame { display: none; }
+  .workspace-panel-heading { padding: 9px 10px; }
+  .workspace-panel-heading h2 { font-size: 23px; }
+  .topology-panel .workspace-panel-heading { gap: 7px; }
+  .topology-panel--vertical .workspace-panel-heading { flex-direction: row; align-items: end; }
+  .map-legend { gap: 5px 9px; }
+  .map-legend li { gap: 4px; font-size: 9px; }
+  .map-legend li::before { width: 10px; }
+  .map-footer { padding: 4px 5px 4px 8px; }
+  .map-footer__hint { font-size: 9px; }
+  .map-controls button { width: 41px; height: 40px; }
+  .inventory-panel__search input { font-size: 16px; }
+  .create-cluster { padding: 16px; }
+  .create-cluster input { font-size: 16px; }
 }
 
-@media (max-width: 719px) {
-  .app-workspace { padding: 12px; }
-  .ops-rail { padding: 15px; }
-
-  .rail-connection,
-  .rail-summary,
-  .rail-legend,
-  .rail-source {
-    display: none;
-  }
-
-  .rail-brand { padding-bottom: 12px; }
-
-  .cluster-bar {
-    grid-template-columns: minmax(0, 1fr) minmax(145px, 0.8fr);
-    align-items: end;
-    padding: 12px 0 0;
-    border-bottom: 0;
-  }
-
-  .cluster-select {
-    padding-inline-start: 12px;
-    border-inline-start: 1px solid var(--edge);
-  }
-
-  .app-workspace__content { margin-top: 12px; }
-
-  .ops-header {
-    align-items: flex-start;
-    flex-wrap: wrap;
-    min-height: 0;
-    padding: 15px;
-  }
-
-  .ops-header__controls {
-    width: 100%;
-    justify-content: space-between;
-    gap: 8px;
-    padding-top: 12px;
-    border-top: 1px solid var(--edge);
-  }
-
-  .ops-header__readout { min-width: 0; }
-
-  .ops-header__generated {
-    margin-inline-start: auto;
-    padding-inline: 10px;
-  }
-
-  .refresh-button { min-width: 76px; }
-
-  .topology-panel > .panel-heading {
-    min-height: 0;
-    padding: 14px;
-  }
-
-  .topology-summary > span:not(.direction-note) { display: none; }
-  .topology-viewport { overflow: visible; padding: 13px; }
-
-  .topology-canvas {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 8px;
-    min-width: 0;
-    height: auto !important;
-  }
-
-  .topology-routes { display: none; }
-
-  .node-bank {
-    position: static;
-    width: auto;
-    align-content: start;
-    gap: 8px;
-  }
-
-  .node-bank--foreign { grid-column: 1; }
-  .node-bank--domestic { grid-column: 2; }
-  .map-node { height: 142px; padding: 7px; }
-  .map-node__metrics { gap: 1px 4px; font-size: 0.49rem; }
-  .route-rail-list { grid-template-columns: 1fr; padding: 10px 13px; }
-  .route-key { padding: 0 13px 13px; }
-  .route-key small { width: 100%; margin-right: 0; }
-  .inspection-panel,
-  .triage-panel { padding: 14px; }
-
-  .state-panel {
-    grid-template-columns: auto minmax(0, 1fr);
-    min-height: 200px;
-    padding: 20px;
-  }
-
-  .state-panel button {
-    grid-column: 1 / -1;
-    justify-self: start;
-  }
+@media (max-width: 370px) {
+  .map-footer__hint span { display: none; }
 }
 
-@media (max-width: 430px) {
-  .cluster-bar {
-    grid-template-columns: 1fr;
-    gap: 9px;
-  }
-
-  .cluster-select {
-    padding: 9px 0 0;
-    border-top: 1px solid var(--edge);
-    border-inline-start: 0;
-  }
-
-  .ops-header__generated { display: none; }
-  .ops-header h1 { font-size: 1.2rem; }
-  .topology-summary { gap: 5px; }
-  .direction-note { font-size: 0.53rem; }
-  .route-key { gap: 7px 11px; }
+@media (max-height: 600px) and (max-width: 760px) {
+  .cluster-overview__snapshot { display: none; }
+  .masthead { padding-block: 5px; }
+  .cluster-overview { gap: 3px; padding-block: 5px; }
+  .app-workspace { padding-block: 6px; }
+  .workbench { gap: 5px; }
 }

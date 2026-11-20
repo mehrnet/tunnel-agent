@@ -14,6 +14,9 @@ export function createViewport() {
   const pointers = new Map<number, { x: number; y: number }>();
   let start = { x: 0, y: 0 };
   let moved = false;
+  let multitouch = false;
+  let touchInput = false;
+  let tapTarget: Element | null = null;
   const point = (event: PointerEvent) => {
     const element = event.currentTarget as HTMLElement;
     const rect = element.getBoundingClientRect();
@@ -28,9 +31,17 @@ export function createViewport() {
   };
   function down(event: PointerEvent) {
     if (event.pointerType === "mouse" && event.button !== 0) return;
-    if (!pointers.size) { moved = false; start = point(event); }
+    if (!pointers.size) {
+      moved = false;
+      multitouch = false;
+      start = point(event);
+      touchInput = event.pointerType === "touch";
+      tapTarget = touchInput && event.target instanceof Element
+        ? event.target.closest("button, .route-line__hit") : null;
+    }
     pointers.set(event.pointerId, point(event));
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    multitouch ||= pointers.size > 1;
+    if (touchInput && event.target instanceof Element) event.target.setPointerCapture(event.pointerId);
   }
   function move(event: PointerEvent) {
     if (!pointers.has(event.pointerId)) return;
@@ -48,10 +59,24 @@ export function createViewport() {
         y: after.y - (before.y - old.y) * ratio };
     });
   }
-  function up(event: PointerEvent) { pointers.delete(event.pointerId); }
+  function up(event: PointerEvent) {
+    if (!pointers.delete(event.pointerId) || pointers.size) return;
+    const target = tapTarget;
+    tapTarget = null;
+    if (event.type !== "pointerup" || !target?.isConnected || moved || multitouch) return;
+    // Some WebViews suppress the next compatibility click after a drag.
+    target.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+  }
+  function leave(event: PointerEvent) {
+    const host = event.currentTarget as HTMLElement;
+    if (event.pointerType === "mouse" && !host.hasPointerCapture(event.pointerId)) up(event);
+  }
   function click(event: MouseEvent) {
-    if (moved) { event.preventDefault(); event.stopPropagation(); }
+    if (event.detail !== 0 && (moved || multitouch || touchInput)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
   }
   const zoom = (factor: number) => setView((old) => ({ ...old, scale: Math.max(0.35, Math.min(3, old.scale * factor)) }));
-  return { view, down, move, up, click, zoom, reset: () => setView({ x: 0, y: 0, scale: 1 }) };
+  return { view, down, move, up, leave, click, zoom, reset: () => setView({ x: 0, y: 0, scale: 1 }) };
 }

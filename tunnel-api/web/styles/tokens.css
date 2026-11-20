@@ -1,45 +1,88 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Vazirmatn:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
 
 :root {
-  color: #e7edf9;
-  background: #080d17;
-  font-family: "Vazirmatn", Tahoma, sans-serif;
+  font-family: "IBM Plex Sans", "Trebuchet MS", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --bg: #080d17;
-  --bg-deep: #060a12;
-  --surface: #10192a;
-  --surface-strong: #152238;
-  --surface-soft: #0c1423;
-  --text: #e7edf9;
-  --text-soft: #bdc9dd;
-  --muted: #8495b1;
-  --faint: #52637f;
-  --edge: #263752;
-  --edge-bright: #3a4e70;
-  --indigo: #8398ff;
-  --indigo-dim: #5367c5;
-  --cyan: #55d1dc;
-  --green: #3bd39a;
-  --warn: #efae5b;
-  --danger: #ed7180;
-  --unknown: #91a1bd;
+  background: #f5f2eb;
+  --display: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
   --mono: "IBM Plex Mono", "Courier New", monospace;
-  --shadow: 0 18px 46px rgba(0, 0, 0, 0.22);
+}
+
+.app-shell {
+  color-scheme: light;
+  --bg: #f5f2eb;
+  --bg-deep: #eee8dc;
+  --surface: #fffcf6;
+  --surface-soft: #f8f4eb;
+  --surface-strong: #eee7d9;
+  --text: #1f2a35;
+  --text-soft: #3d4a56;
+  --muted: #555f69;
+  --faint: #666e75;
+  --edge: #d8d0c1;
+  --edge-bright: #b3a896;
+  --brand: #a34424;
+  --brand-solid: #a34424;
+  --on-brand: #fff9ee;
+  --brand-soft: #f3e2d5;
+  --indigo: #2858b3;
+  --indigo-dim: #536c9c;
+  --cyan: #17655f;
+  --green: #17634f;
+  --warn: #884f15;
+  --danger: #a3383c;
+  --unknown: #606873;
+  --map: #f2ecdd;
+  --grid: #b5a17b3f;
+  --grid-strong: #a48b5e32;
+  --scrim: #20262769;
+  --shadow: 0 13px 35px #43382018;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.app-shell[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #171b20;
+  --bg-deep: #13171b;
+  --surface: #232931;
+  --surface-soft: #1d232b;
+  --surface-strong: #2d3540;
+  --text: #f4f1e8;
+  --text-soft: #e0e1e2;
+  --muted: #b0b7c1;
+  --faint: #a3abb6;
+  --edge: #404853;
+  --edge-bright: #67717c;
+  --brand: #ffac7e;
+  --brand-solid: #e99364;
+  --on-brand: #24160f;
+  --brand-soft: #433027;
+  --indigo: #a3bcff;
+  --indigo-dim: #9baad0;
+  --cyan: #81d4c6;
+  --green: #8ad4b7;
+  --warn: #f4b86f;
+  --danger: #ff9ba0;
+  --unknown: #aeb8c6;
+  --map: #20272b;
+  --grid: #cbb58d1d;
+  --grid-strong: #cbb58d20;
+  --scrim: #080b11aa;
+  --shadow: 0 13px 35px #080b114d;
 }
 
 * { box-sizing: border-box; }
-
-body { min-width: 320px; min-height: 100vh; margin: 0; background: var(--bg); }
-body::before { position: fixed; inset: 0; z-index: -1; content: ""; pointer-events: none; background: radial-gradient(circle at 82% -8%, rgba(87, 106, 217, 0.22), transparent 32rem), radial-gradient(circle at 8% 70%, rgba(50, 198, 210, 0.08), transparent 30rem), linear-gradient(135deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px); background-size: auto, auto, 32px 32px; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
-button:disabled { cursor: wait; opacity: 0.58; }
-button:focus-visible, select:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
-h1, h2, h3, p { margin: 0; }
+button:disabled { cursor: not-allowed; opacity: .58; }
+:is(button, input, select, [role="button"]):focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+h1, h2, h3, p, ul, dl, dd { margin: 0; }
 code, .mono { direction: ltr; font-family: var(--mono); unicode-bidi: plaintext; }
-::selection { color: var(--bg-deep); background: var(--cyan); }
+::selection { color: var(--text); background: var(--brand-soft); }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }

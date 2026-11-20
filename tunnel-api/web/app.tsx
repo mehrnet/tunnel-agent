@@ -1,10 +1,11 @@
 import { For, Match, Show, Switch, createSignal } from "solid-js";
-import { InspectorPanel } from "./components/InspectorPanel";
 import { AddMenu } from "./components/AddMenu";
+import { Dashboard } from "./components/Dashboard";
+import { OwnerDialog } from "./components/OwnerDialog";
+import { WorkbenchIcon } from "./components/WorkbenchIcon";
 import { StatePanel } from "./components/StatePanel";
-import { TopologyMap } from "./components/TopologyMap";
 import { NewTunnel } from "./components/TunnelEditor";
-import type { ClusterResponse, ClusterSummary, Selection } from "./data/types";
+import type { ClusterSummary, Selection } from "./data/types";
 import { createClusterData } from "./lib/cluster-state";
 import { telegramContext } from "./platform/telegram";
 
@@ -15,11 +16,25 @@ async function createCluster(name: string, initData?: string) {
   return (await response.json() as { cluster: ClusterSummary }).cluster;
 }
 
-function Dashboard(props: { cluster: ClusterResponse; selection: Selection; onNodeSelect: (id: string) => void; onLaneSelect: (id: string) => void; initData: string; refresh: () => void }) {
-  return <div class="observatory-grid">
-    <TopologyMap cluster={props.cluster} selectedKind={props.selection?.kind} selectedId={props.selection?.id} onNodeSelect={props.onNodeSelect} onLaneSelect={props.onLaneSelect} />
-    <Show when={props.selection}><div class="popup-shade"><div class="node-popup" role="dialog" aria-label="Details" onClick={(event) => event.stopPropagation()}><InspectorPanel cluster={props.cluster} selection={props.selection} initData={props.initData} refresh={props.refresh} /></div></div></Show>
-  </div>;
+function Masthead(props: { telegram: boolean }) {
+  return <header class="masthead">
+    <div class="masthead__brand">
+      <span class="masthead__mark"><WorkbenchIcon name="brand" /></span>
+      <div><h1>Tunnel Owners</h1><p>Network operations</p></div>
+    </div>
+    <div class="masthead__context"><WorkbenchIcon name="telegram" />{props.telegram ? "Telegram session" : "Telegram access"}</div>
+  </header>;
+}
+
+function ClusterDialog(props: { error: string; onClose: () => void; onSubmit: (event: SubmitEvent) => void }) {
+  return <OwnerDialog class="node-popup details-dialog" title="create-title" close={props.onClose}>
+    <form class="create-cluster" onSubmit={(event) => props.onSubmit(event)}>
+      <h2 id="create-title">New cluster</h2>
+      <label>Cluster name<input name="name" placeholder="Cluster name" required maxlength={80} /></label>
+      <Show when={props.error}><p role="alert">{props.error}</p></Show>
+      <div class="create-cluster__actions"><button type="button" onClick={() => props.onClose()}>Cancel</button><button type="submit">Create cluster</button></div>
+    </form>
+  </OwnerDialog>;
 }
 
 export function App() {
@@ -27,8 +42,11 @@ export function App() {
   const [selection, setSelection] = createSignal<Selection>();
   const { clusters, setClusters, selectedId, cluster, phase, loadError, chooseCluster, refresh } =
     createClusterData(context.initData, () => setSelection(undefined));
-  const [adding, setAdding] = createSignal(false); const [creationError, setCreationError] = createSignal("");
+  const [adding, setAdding] = createSignal(false);
+  const [creationError, setCreationError] = createSignal("");
   const [addingTunnel, setAddingTunnel] = createSignal(false);
+  const snapshot = () => cluster()?.cluster.id === selectedId() ? cluster() : undefined;
+
   async function addCluster(event: SubmitEvent) {
     event.preventDefault();
     const name = String(new FormData(event.currentTarget as HTMLFormElement).get("name") ?? "").trim();
@@ -39,25 +57,35 @@ export function App() {
   }
 
   return (
-    <main class="app-shell" dir="ltr" data-theme={context.colorScheme} onClick={() => { setSelection(undefined); setAdding(false); }}>
-      <nav class="cluster-tabs" aria-label="Clusters" onClick={(event) => event.stopPropagation()}>
-        <For each={clusters()}>{(item) => <button type="button" classList={{ active: item.id === selectedId() }} onClick={() => chooseCluster(item.id)}>{item.name}{item.release_track === "testing" ? " · Testing" : ""}</button>}</For>
-        <AddMenu clusterId={selectedId()} testing={clusters().some((item) => item.id === selectedId() && item.release_track === "testing")} initData={context.initData} refresh={refresh} newCluster={() => { setCreationError(""); setAdding(true); }}
-          newTunnel={context.initData && (cluster()?.nodes.length ?? 0) >= 2 ? () => setAddingTunnel(true) : undefined} />
-      </nav>
-      <Show when={adding()}><div class="popup-shade"><form class="node-popup create-cluster" onClick={(event) => event.stopPropagation()} onSubmit={(event) => void addCluster(event)}><h2>New cluster</h2><input name="name" aria-label="Cluster name" placeholder="Cluster name" required maxlength={80} /><p>{creationError()}</p><button type="submit">Create cluster</button></form></div></Show>
-      <Show when={addingTunnel() && cluster()}>{(snapshot) => <NewTunnel cluster={snapshot()} initData={context.initData ?? ""}
+    <main class="app-shell" dir="ltr" data-theme={context.colorScheme}>
+      <Masthead telegram={context.source === "telegram"} />
+      <Show when={context.initData}>
+        <nav class="cluster-tabs" aria-label="Clusters">
+          <span class="section-label cluster-tabs__caption">Clusters</span>
+          <div class="cluster-tabs__list">
+            <For each={clusters()} fallback={<span class="cluster-tabs__none">{phase() === "loading" ? "Loading clusters" : "No clusters"}</span>}>
+              {(item) => <button type="button" aria-current={item.id === selectedId() ? "true" : undefined} onClick={() => chooseCluster(item.id)}>
+                <span>{item.name}</span><Show when={item.release_track === "testing"}><small>Testing</small></Show>
+              </button>}
+            </For>
+          </div>
+          <AddMenu clusterId={selectedId()} testing={clusters().some((item) => item.id === selectedId() && item.release_track === "testing")}
+            initData={context.initData} refresh={refresh} newCluster={() => { setCreationError(""); setAdding(true); }}
+            newTunnel={(cluster()?.nodes.length ?? 0) >= 2 ? () => setAddingTunnel(true) : undefined} />
+        </nav>
+      </Show>
+      <Show when={adding()}><ClusterDialog error={creationError()} onClose={() => setAdding(false)} onSubmit={(event) => void addCluster(event)} /></Show>
+      <Show when={addingTunnel() && cluster()}>{(current) => <NewTunnel cluster={current()} initData={context.initData ?? ""}
         close={() => setAddingTunnel(false)} saved={() => { setAddingTunnel(false); refresh(); }} />}</Show>
       <div class="app-workspace">
-        <div class="app-workspace__content">
-          <Switch>
-            <Match when={phase() === "telegram"}><StatePanel state="telegram" /></Match>
-            <Match when={phase() === "error"}><StatePanel state="error" detail={loadError()} onRetry={refresh} /></Match>
-            <Match when={phase() === "empty"}><StatePanel state="empty" /></Match>
-            <Match when={phase() === "loading" && !cluster()}><StatePanel state="loading" /></Match>
-            <Match when={cluster()}>{(snapshot) => <Dashboard cluster={snapshot()} selection={selection()} initData={context.initData ?? ""} refresh={refresh} onNodeSelect={(id) => { queueMicrotask(() => setSelection({ kind: "node", id })); }} onLaneSelect={(id) => { queueMicrotask(() => setSelection({ kind: "lane", id })); }} />}</Match>
-          </Switch>
-        </div>
+        <Switch>
+          <Match when={phase() === "telegram"}><StatePanel state="telegram" /></Match>
+          <Match when={phase() === "error"}><StatePanel state="error" detail={loadError()} onRetry={refresh} /></Match>
+          <Match when={phase() === "empty"}><StatePanel state="empty" /></Match>
+          <Match when={snapshot()}>{(current) => <Dashboard cluster={current()} selection={selection()} initData={context.initData ?? ""}
+            refresh={refresh} onSelect={setSelection} />}</Match>
+          <Match when={phase() === "loading"}><StatePanel state="loading" /></Match>
+        </Switch>
       </div>
     </main>
   );

@@ -1,6 +1,7 @@
 import { For, Show, createSignal } from "solid-js";
 import { postOwner } from "../api/client";
-import type { ClusterResponse, TunnelLane } from "../data/types";
+import type { ClusterNode, ClusterResponse, TunnelLane } from "../data/types";
+import { OwnerDialog } from "./OwnerDialog";
 
 function TcpDestination(props: { host?: string | null; port?: number | null }) {
   return <>
@@ -9,16 +10,50 @@ function TcpDestination(props: { host?: string | null; port?: number | null }) {
   </>;
 }
 
+function ServerField(props: { label: string; name: string; nodes: ClusterNode[] }) {
+  return <label>{props.label} <select name={props.name} required>
+    <option value="">Select a server</option>
+    <For each={props.nodes}>{(node) => <option value={node.id}>{node.name} ({node.node_class})</option>}</For>
+  </select></label>;
+}
+
+function TransportFields(props: { transport: string; kind: string; setTransport: (value: string) => void; setKind: (value: string) => void }) {
+  return <fieldset>
+    <legend>02 / Transport and ports</legend>
+    <div class="detail-form-pair">
+      <label>Transport <select value={props.transport} onChange={(event) => props.setTransport(event.currentTarget.value)}>
+        <option value="wstunnel">WSTunnel (TLS)</option>
+        <option value="hpnssh">HPNSSH</option>
+        <option value="rathole">Rathole (Noise)</option>
+      </select></label>
+      <label>Listener type <select value={props.kind} onChange={(event) => props.setKind(event.currentTarget.value)}>
+        <option value="tcp">TCP</option>
+        <Show when={props.transport !== "rathole"}><option value="socks5">SOCKS5</option></Show>
+      </select></label>
+      <label>Loopback port <input name="listener_port" type="number" min="1024" max="65535" required /></label>
+      <label>Control port <input name="control_port" type="number" min="1024" max="65535" required /></label>
+    </div>
+    <Show when={props.transport === "wstunnel"}>
+      <label>TLS server name <input name="tls_server_name" placeholder="Required when dialing an IP address" maxlength="253" /></label>
+    </Show>
+  </fieldset>;
+}
+
 export function NewTunnel(props: { cluster: ClusterResponse; initData: string; close: () => void; saved: () => void }) {
   const [transport, setTransport] = createSignal("wstunnel");
   const [kind, setKind] = createSignal("tcp");
   const [busy, setBusy] = createSignal(false);
   const [message, setMessage] = createSignal("");
   const nodes = () => props.cluster.nodes.filter((node) => node.status !== "revoked");
+  function chooseTransport(selected: string) {
+    setTransport(selected);
+    if (selected === "rathole") setKind("tcp");
+  }
   async function save(event: SubmitEvent) {
     event.preventDefault();
     if (busy()) return;
     const fields = new FormData(event.currentTarget as HTMLFormElement);
+    if (fields.get("source") === fields.get("listener")) return setMessage("Select two different servers.");
     setBusy(true); setMessage("");
     try {
       await postOwner(`/clusters/${props.cluster.cluster.id}/tunnels`, props.initData, {
@@ -31,38 +66,33 @@ export function NewTunnel(props: { cluster: ClusterResponse; initData: string; c
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not create lane"); }
     finally { setBusy(false); }
   }
-  return <div class="popup-shade" onClick={() => props.close()}>
-    <form class="node-popup create-cluster" onClick={(event) => event.stopPropagation()} onSubmit={(event) => void save(event)}>
-      <h2>New reverse tunnel</h2>
-      <label>Connector <select name="source" required><option value="">Select server</option><For each={nodes()}>{(node) => <option value={node.id}>{node.name}</option>}</For></select></label>
-      <label>Listening server <select name="listener" required><option value="">Select server</option><For each={nodes()}>{(node) => <option value={node.id}>{node.name}</option>}</For></select></label>
-      <label>Transport <select value={transport()} onChange={(event) => {
-        const selected = event.currentTarget.value;
-        setTransport(selected);
-        if (selected === "rathole") setKind("tcp");
-      }}>
-        <option value="wstunnel">WSTunnel (TLS)</option>
-        <option value="hpnssh">HPNSSH</option>
-        <option value="rathole">Rathole (Noise)</option>
-      </select></label>
-      <label>Loopback listener type <select value={kind()} onChange={(event) => setKind(event.currentTarget.value)}>
-        <option value="tcp">TCP</option>
-        <Show when={transport() !== "rathole"}><option value="socks5">SOCKS5</option></Show>
-      </select></label>
-      <label>Loopback port <input name="listener_port" type="number" min="1024" max="65535" required /></label>
-      <label>Control port <input name="control_port" type="number" min="1024" max="65535" required /></label>
-      <Show when={transport() === "wstunnel"}>
-        <label>TLS server name <input name="tls_server_name" placeholder="Required when dialing an IP address" maxlength="253" /></label>
-      </Show>
-      <Show when={kind() === "tcp"}><TcpDestination /></Show>
+  return <OwnerDialog class="node-popup lane-editor" title="new-lane-title" close={props.close}>
+    <form onSubmit={(event) => void save(event)}>
+      <header class="lane-editor__title">
+        <div><p class="detail-kicker">LANE SETUP</p><h2 id="new-lane-title">New reverse tunnel</h2></div>
+        <button type="button" onClick={() => props.close()}>Close</button>
+      </header>
+      <fieldset>
+        <legend>01 / Endpoints</legend>
+        <div class="detail-form-pair">
+          <ServerField label="Connector" name="source" nodes={nodes()} />
+          <ServerField label="Listening server" name="listener" nodes={nodes()} />
+        </div>
+        <p>The connector dials the listening server and forwards requests to the destination.</p>
+      </fieldset>
+      <TransportFields transport={transport()} kind={kind()} setTransport={chooseTransport} setKind={setKind} />
+      <Show when={kind() === "tcp"}><fieldset>
+        <legend>03 / Destination</legend>
+        <div class="detail-form-pair"><TcpDestination /></div>
+      </fieldset></Show>
       <p>{transport() === "wstunnel"
         ? "Saved disabled. Before enabling, install the listener's TLS certificate and key."
         : "Saved disabled. Both nodes must report their transport identity before you can enable the lane."}
         {" The connector must be able to reach the listening server's control port."}</p>
       <Show when={message()}><p role="alert">{message()}</p></Show>
-      <button type="submit" disabled={busy()}>Save disabled lane</button>
+      <button class="lane-editor__save" type="submit" disabled={busy()}>{busy() ? "Saving…" : "Save disabled lane"}</button>
     </form>
-  </div>;
+  </OwnerDialog>;
 }
 
 export function TunnelControls(props: { clusterId: string; lane: TunnelLane; initData: string; saved: () => void }) {

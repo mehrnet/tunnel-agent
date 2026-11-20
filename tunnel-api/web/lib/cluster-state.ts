@@ -25,7 +25,7 @@ export function createClusterData(initData: string | undefined, onClusterChange:
     try {
       const next = await fetchCluster(id, initData);
       if (request !== loadSequence) return;
-      setCluster(next); onClusterChange(); setPhase("ready");
+      setCluster(next); setPhase("ready");
     } catch (error) {
       if (request === loadSequence) fail(error);
     }
@@ -52,14 +52,20 @@ export function createClusterData(initData: string | undefined, onClusterChange:
       setClusters(owned);
       if (owned.length === 0) return setPhase("empty");
       const id = owned.find((item) => item.id === selectedId())?.id ?? owned[0].id;
-      setSelectedId(id);
+      selectCluster(id);
       await loadTelemetry(id);
     } catch (error) { fail(error); }
   }
 
-  function chooseCluster(id: string) {
+  function selectCluster(id: string) {
+    if (id === selectedId()) return false;
     setSelectedId(id);
-    void loadTelemetry(id);
+    onClusterChange();
+    return true;
+  }
+
+  function chooseCluster(id: string) {
+    if (selectCluster(id)) void loadTelemetry(id);
   }
 
   onMount(() => {

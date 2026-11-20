@@ -1,7 +1,6 @@
 import { Show, createSignal } from "solid-js";
-import { telegramContext } from "../platform/telegram";
 
-export function BootstrapField(props: { nodeId: string; domesticGrant?: boolean }) {
+export function BootstrapField(props: { nodeId: string; initData: string; domesticGrant?: boolean }) {
   const [command, setCommand] = createSignal("");
   const [message, setMessage] = createSignal("");
   const [busy, setBusy] = createSignal(false);
@@ -13,7 +12,7 @@ export function BootstrapField(props: { nodeId: string; domesticGrant?: boolean 
     try {
       const endpoint = props.domesticGrant ? "domestic-grant" : "install";
       const response = await fetch(`/api/v1/web/nodes/${encodeURIComponent(props.nodeId)}/${endpoint}`, {
-        method: "POST", headers: { "x-telegram-init-data": telegramContext().initData ?? "", "Content-Type": "application/json" },
+        method: "POST", headers: { "x-telegram-init-data": props.initData, "Content-Type": "application/json" },
         body: props.domesticGrant ? JSON.stringify({ public_key: publicKey().trim() }) : undefined,
       });
       const payload = await response.json() as { command?: string; grant?: string; error?: string };
@@ -26,11 +25,14 @@ export function BootstrapField(props: { nodeId: string; domesticGrant?: boolean 
     try { await navigator.clipboard.writeText(command()); setMessage("Copied"); }
     catch { setMessage("Clipboard unavailable in this client."); }
   }
-  return <div class="bootstrap-field"><strong>{label()}</strong>
+  return <div class="bootstrap-field"><h3>{label()}</h3>
+    <p>{props.domesticGrant ? "Generate a grant from the server's public key to finish identity setup."
+      : "Generate a fresh install command when the server is ready."}</p>
     <Show when={props.domesticGrant}><label>Ed25519 SPKI public key (base64)
       <input value={publicKey()} onInput={(event) => setPublicKey(event.currentTarget.value)} maxlength={60} />
     </label></Show>
     <Show when={command()}><pre>{command()}</pre><button type="button" onClick={() => void copy()}>Copy {label().toLowerCase()}</button></Show>
-    <button type="button" disabled={busy()} onClick={() => void generate()}>{busy() ? "Generating…" : `Generate ${label().toLowerCase()}`}</button><p>{message()}</p>
+    <button type="button" disabled={busy() || !props.initData} onClick={() => void generate()}>{busy() ? "Generating…" : `Generate ${label().toLowerCase()}`}</button>
+    <Show when={message()}><p role="status">{message()}</p></Show>
   </div>;
 }

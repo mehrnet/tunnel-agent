@@ -1,3 +1,6 @@
+import { Show } from "solid-js";
+import { WorkbenchIcon } from "./WorkbenchIcon";
+
 interface StatePanelProps {
   state: "loading" | "empty" | "error" | "telegram";
   onRetry?: () => void;
@@ -5,8 +8,8 @@ interface StatePanelProps {
 }
 
 const messages = {
-  loading: ["Loading cluster", "Fetching nodes and connections."],
-  empty: ["No clusters yet", "Add a cluster to get started."],
+  loading: ["Loading cluster", "Retrieving server and lane information."],
+  empty: ["No clusters yet", "Use the + in the cluster bar to create your first cluster."],
   error: ["Cluster data unavailable", "Check your connection and try again."],
   telegram: ["Open from Tunnel Owners", "Open this app using the button in TunnelOwnersBot."],
 };
@@ -14,13 +17,14 @@ const messages = {
 export function StatePanel(props: StatePanelProps) {
   const message = () => messages[props.state];
   return (
-    <section class={`state-panel state-panel--${props.state}`} aria-live="polite">
-      <span class="state-panel__mark" aria-hidden="true">{props.state === "error" ? "!" : props.state === "telegram" ? "TG" : "·"}</span>
-      <div>
-        <h2>{message()[0]}</h2>
+    <section class={`state-panel state-panel--${props.state}`} aria-labelledby="state-title">
+      <span class="state-panel__mark"><WorkbenchIcon name={props.state === "error" ? "warning" : props.state === "telegram" ? "telegram" : props.state === "loading" ? "refresh" : "map"} /></span>
+      <div role={props.state === "error" ? "alert" : "status"}>
+        <p class="section-label">Network operations</p>
+        <h2 id="state-title">{message()[0]}</h2>
         <p>{props.detail || message()[1]}</p>
       </div>
-      {props.state === "error" && props.onRetry ? <button type="button" onClick={props.onRetry}>Retry</button> : null}
+      <Show when={props.state === "error" && props.onRetry}><button type="button" onClick={() => props.onRetry?.()}><WorkbenchIcon name="refresh" />Retry</button></Show>
     </section>
   );
 }

@@ -1,115 +1,157 @@
-import { For, Show, createEffect, createSignal } from "solid-js";
-import type { ClusterNode, ClusterResponse, TunnelLane } from "../data/types";
-import { formatBytes, formatMoment, formatNumber, formatPercent, formatProbe, formatRate, isFresh, laneState, laneStatus, probeLabel } from "../lib/format";
-import { StatIcon } from "./StatIcon";
+import { Index, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import type { ClusterResponse, Selection } from "../data/types";
 import { createViewport } from "../lib/viewport";
+import { topologyLayout } from "../lib/topology-layout";
+import { MapNode, MapRoutes } from "./MapFeatures";
+import { WorkbenchIcon } from "./WorkbenchIcon";
 
-interface TopologyMapProps {
-  cluster: ClusterResponse;
-  selectedKind: "lane" | "node" | undefined;
-  selectedId: string | undefined;
-  onNodeSelect: (id: string) => void;
-  onLaneSelect: (id: string) => void;
-}
-
-function nodeStatus(node: ClusterNode) {
-  if (node.status === "revoked") return "Revoked";
-  if (node.status === "pending") return "Pending";
-  return node.last_heartbeat_at === null ? "No report" : isFresh(node.heartbeat_expires_at) ? "Active" : "Stalled";
-}
-
-function savedOrientation() {
-  try { return localStorage.getItem("tunnel-orientation") === "vertical"; } catch { return false; }
-}
-function laneClass(lane: TunnelLane, selected: boolean) {
-  return `route-line route-line--${lane.kind ?? "tunnel"} route-line--${laneState(lane)}${selected ? " route-line--selected" : ""}`;
-}
-
-function nodeY(index: number) {
-  return 90 + index * 196;
-}
-
-function NodeCard(props: { node: ClusterNode; selected: boolean; onSelect: () => void }) {
-  const telemetry = () => props.node.telemetry;
-  const classLabel = () => props.node.node_class === "foreign" ? "Foreign" : "Domestic";
-  return (
-    <button class="map-node" classList={{ "map-node--selected": props.selected }} type="button" aria-pressed={props.selected} onClick={() => props.onSelect()}>
-      <span class="map-node__topline"><span>{classLabel()}</span><b>{nodeStatus(props.node)}</b></span>
-      <strong>{props.node.name}</strong>
-      <code>{props.node.address ?? "No address"}</code>
-      <span class="map-node__heartbeat">Heartbeat: {formatMoment(props.node.last_heartbeat_at)}</span>
-      <Show when={telemetry()} fallback={<span class="map-node__missing">No host telemetry</span>}>
-        {(sample) => <div class="map-node__metrics">
-          <span><em><StatIcon label="CPU" />CPU</em><b>{formatPercent(sample().cpu_percent)}</b></span>
-          <span><em><StatIcon label="MEM" />MEM</em><b>{formatPercent(sample().memory_percent)}</b></span>
-          <span><em><StatIcon label="RX" />RX</em><b>{formatRate(sample().rx_bytes_per_sec)}</b></span>
-          <span><em><StatIcon label="TX" />TX</em><b>{formatRate(sample().tx_bytes_per_sec)}</b></span>
-          <span><em><StatIcon label="LOAD" />LOAD</em><b>{formatNumber(sample().load_1, 2)}</b></span>
-          <span><em><StatIcon label="RSS" />RSS</em><b>{formatBytes(sample().agent_rss_bytes)}</b></span>
-        </div>}
-      </Show>
-    </button>
-  );
-}
-
-function Route(props: { lane: TunnelLane; sourceY: number; peerY: number; labelY: number; reverse: boolean; selected: boolean; onSelect: () => void }) {
-  const path = () => `M ${props.reverse ? 720 : 280} ${props.sourceY} Q 500 ${2 * props.labelY - (props.sourceY + props.peerY) / 2} ${props.reverse ? 280 : 720} ${props.peerY}`;
-  const probe = () => formatProbe(props.lane.probe_ms, props.lane.fresh_until);
-  const label = () => [props.lane.transport, props.lane.direction, props.lane.local_listener && `(${props.lane.local_listener})`].filter(Boolean).join(" ");
-  const keySelect = (event: KeyboardEvent) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      props.onSelect();
-    }
+function useOrientation() {
+  const media = window.matchMedia("(max-width: 900px)");
+  const [narrow, setNarrow] = createSignal(media.matches);
+  const [rotated, setRotated] = createSignal(false);
+  try {
+    setRotated(localStorage.getItem("tunnel-orientation") === "vertical");
+  } catch { /* Storage is optional. */ }
+  const resize = () => setNarrow(media.matches);
+  onMount(() => {
+    media.addEventListener("change", resize);
+    onCleanup(() => media.removeEventListener("change", resize));
+  });
+  return {
+    portrait: () => narrow() && !rotated(),
+    rotated,
+    rotate: () => {
+      const next = setRotated((current) => !current);
+      try { localStorage.setItem("tunnel-orientation", next ? "vertical" : "horizontal"); } catch { /* Storage is optional. */ }
+    },
   };
-  return (
-    <g class={laneClass(props.lane, props.selected)} role="button" tabindex="0" aria-pressed={props.selected} aria-label={`Connection ${props.lane.transport} · ${laneStatus(props.lane)}`} onClick={() => props.onSelect()} onKeyDown={keySelect}>
-      <path class="route-line__hit" d={path()} fill="none" />
-      <path class="route-line__track" d={path()} marker-end={`url(#arrow-${laneState(props.lane)})`} />
-      <text class="route-line__label" x="500" y={props.labelY} text-anchor="middle">
-        {label()}
-        <Show when={probe()}>{(value) => <tspan x="500" dy="16">{probeLabel(props.lane)}: {value()}</tspan>}</Show>
-      </text>
-    </g>
-  );
 }
 
-export function TopologyMap(props: TopologyMapProps) {
+function useFitMode() {
+  const [fitted, setFitted] = createSignal(false);
+  const key = "tunnel-fit";
+  try { setFitted(localStorage.getItem(key) === "true"); } catch { /* Storage is optional. */ }
+  return {
+    fitted,
+    toggleFit: () => {
+      const next = setFitted((current) => !current);
+      try { localStorage.setItem(key, String(next)); } catch { /* Storage is optional. */ }
+    },
+  };
+}
+
+function useMapCamera() {
   const viewport = createViewport();
-  const [vertical, setVertical] = createSignal(savedOrientation());
-  createEffect(() => { const value = vertical(); try { localStorage.setItem("tunnel-orientation", value ? "vertical" : "horizontal"); } catch { /* Optional persistence. */ } });
-  const foreign = () => props.cluster.nodes.filter((node) => node.node_class === "foreign");
-  const domestic = () => props.cluster.nodes.filter((node) => node.node_class === "domestic");
-  const maxRows = () => Math.max(foreign().length, domestic().length, 1);
-  const mapHeight = () => maxRows() * 196 + 10;
-  const laneNode = (id: string) => props.cluster.nodes.find((node) => node.id === id);
-  const position = (node: ClusterNode) => nodeY((node.node_class === "foreign" ? foreign() : domestic()).findIndex((item) => item.id === node.id));
-  const selectedLane = (id: string) => props.selectedKind === "lane" && props.selectedId === id;
-  return (
-    <section class="topology-panel" classList={{ "topology-panel--vertical": vertical() }} aria-label="Cluster visualizer">
-      <div class="topology-viewport" ref={(element) => element.addEventListener("click", viewport.click, true)} onPointerDown={viewport.down} onPointerMove={viewport.move} onPointerUp={viewport.up} onPointerCancel={viewport.up}>
-        <div class="topology-canvas" style={{ height: `${mapHeight()}px`, "--map-height": `${mapHeight()}px`, transform: `translate(${viewport.view().x}px, ${viewport.view().y}px) scale(${viewport.view().scale})` }}>
-          <svg class="topology-routes" viewBox={`0 0 1000 ${mapHeight()}`} preserveAspectRatio="none" aria-label="Cluster connections">
-            <defs>
-              <marker id="arrow-healthy" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" /></marker>
-              <marker id="arrow-degraded" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" /></marker>
-              <marker id="arrow-unknown" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" /></marker>
-            </defs>
-            <For each={props.cluster.lanes}>{(lane, index) => {
-              const source = laneNode(lane.source_node_id);
-              const peer = laneNode(lane.peer_node_id);
-              return source && peer ? <Route lane={lane} reverse={source.node_class === "domestic"} sourceY={position(source)} peerY={position(peer)} labelY={(position(source) + position(peer)) / 2 - 12 + index() * 24} selected={selectedLane(lane.id)} onSelect={() => props.onLaneSelect(lane.id)} /> : null;
-            }}</For>
-          </svg>
-          <div class="node-bank node-bank--foreign">
-            <For each={foreign()}>{(node) => <NodeCard node={node} selected={props.selectedKind === "node" && props.selectedId === node.id} onSelect={() => props.onNodeSelect(node.id)} />}</For>
+  const [size, setSize] = createSignal({ width: 0, height: 0 });
+  const attach = (element: HTMLDivElement) => {
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width && height) setSize({ width, height });
+    });
+    element.addEventListener("click", viewport.click, true);
+    observer.observe(element);
+    onCleanup(() => { element.removeEventListener("click", viewport.click, true); observer.disconnect(); });
+  };
+  return { ...viewport, size, attach };
+}
+
+function MapLegend() {
+  return <ul class="map-legend" aria-label="Lane legend">
+    <li data-line="customer">Customer</li><li data-line="management">Management</li>
+    <li data-line="degraded">Degraded</li><li data-line="unknown">No current probe</li>
+  </ul>;
+}
+
+function MapControls(props: {
+  rotated: boolean;
+  fitted: boolean;
+  scale: number;
+  renderedScale: number;
+  onRotate: () => void;
+  onFit: () => void;
+  onZoom: (factor: number) => void;
+}) {
+  return <div class="map-controls" role="group" aria-label="Map view controls">
+    <button type="button" aria-label="Rotate map layout" aria-pressed={props.rotated} title="Rotate layout" onClick={() => props.onRotate()}><WorkbenchIcon name="rotate" /></button>
+    <button type="button" aria-label="Fit all servers and lanes" aria-pressed={props.fitted} title={props.fitted ? "Restore readable view" : "Fit all servers and lanes"} onClick={() => props.onFit()}><WorkbenchIcon name="fit" /></button>
+    <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => props.onZoom(1 / 1.2)} disabled={props.scale <= 0.35}><WorkbenchIcon name="minus" /></button>
+    <output aria-label="Map zoom">{Math.round(props.renderedScale * 100)}%</output>
+    <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => props.onZoom(1.2)} disabled={props.scale >= 3}><WorkbenchIcon name="plus" /></button>
+  </div>;
+}
+
+export function TopologyMap(props: {
+  cluster: ClusterResponse;
+  selection: Selection;
+  onSelect: (selection: Selection) => void;
+}) {
+  const camera = useMapCamera();
+  const { portrait, rotated, rotate } = useOrientation();
+  const layout = createMemo(() => topologyLayout(props.cluster, portrait(), rotated()));
+  const [focusOffset, setFocusOffset] = createSignal({ x: 0, y: 0 });
+  const { fitted, toggleFit } = useFitMode();
+  const isFitted = () => fitted() && camera.view().scale === 1 && !camera.view().x && !camera.view().y && !focusOffset().x && !focusOffset().y;
+  const reset = () => { setFocusOffset({ x: 0, y: 0 }); camera.reset(); };
+  const placement = createMemo(() => {
+    const { width, height } = camera.size();
+    const fit = width && height ? Math.min(1, width / layout().width, height / layout().height) : 1;
+    const scale = fitted() ? fit : Math.max(rotated() ? 0.58 : 0.78, fit);
+    const x = Math.max(0, (width - scale * layout().width) / 2);
+    const y = Math.max(0, Math.min(44, (height - scale * layout().height) / 2));
+    const view = camera.view();
+    return {
+      scale: scale * view.scale,
+      x: view.x + view.scale * x + focusOffset().x,
+      y: view.y + view.scale * y + focusOffset().y,
+    };
+  });
+  const followFocus = (event: FocusEvent) => {
+    if (!(event.target instanceof HTMLElement) || !event.target.matches(":focus-visible")) return;
+    const item = event.target.getBoundingClientRect();
+    const frame = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const reveal = (start: number, end: number, low: number, high: number) => start < low + 8 ? low + 8 - start : Math.min(0, high - 8 - end);
+    const x = reveal(item.left, item.right, frame.left, frame.right);
+    const y = reveal(item.top, item.bottom, frame.top, frame.bottom);
+    setFocusOffset((old) => ({ x: old.x + (rotated() ? y : x), y: old.y + (rotated() ? -x : y) }));
+  };
+  const selectRoad = (id: string) => props.onSelect({ kind: "lane", id });
+  const selectNode = (id: string) => props.onSelect({ kind: "node", id });
+  return <div class="topology-frame"><section id="topology-panel" class="topology-panel" classList={{ "topology-panel--vertical": rotated() }}
+    aria-labelledby="topology-title" data-layout={portrait() ? "portrait" : "landscape"}>
+    <header class="workspace-panel-heading">
+      <div><p class="section-label">Topology</p><h2 id="topology-title">Network map</h2></div>
+      <MapLegend />
+    </header>
+    <div class="topology-viewport" ref={camera.attach} onPointerDown={camera.down} onPointerMove={camera.move}
+      onPointerUp={camera.up} onPointerCancel={camera.up} onPointerLeave={camera.leave} onFocusIn={followFocus}>
+      <div class="topology-grid" style={{ "--grid-step": `${24 * placement().scale}px`, "--grid-x": `${placement().x}px`, "--grid-y": `${placement().y}px` }} />
+      <Show when={props.cluster.nodes.length} fallback={
+        <div class="map-empty"><WorkbenchIcon name="map" /><strong>No servers to map</strong><p>Add a server from the cluster menu to start building the topology.</p></div>
+      }>
+        <div class="topology-canvas" style={{ width: `${layout().width}px`, height: `${layout().height}px`,
+          transform: `translate(${placement().x}px, ${placement().y}px) scale(${placement().scale})` }}>
+          <MapRoutes routes={layout().routes} selectedId={props.selection?.kind === "lane" ? props.selection.id : undefined} onSelect={selectRoad} />
+          <div class="node-bank" role="group" aria-label="Domestic servers"
+            style={{ "--bank-x": `${layout().domesticLabel.x}px`, "--bank-y": `${layout().domesticLabel.y}px` }}>
+            <h3>Domestic <small>{layout().domestic.length}</small></h3>
+            <Index each={layout().domestic} fallback={<p>No domestic servers</p>}>{(item) =>
+              <MapNode item={item()} selected={props.selection?.kind === "node" && props.selection.id === item().node.id} onSelect={selectNode} />
+            }</Index>
           </div>
-          <div class="node-bank node-bank--domestic">
-            <For each={domestic()}>{(node) => <NodeCard node={node} selected={props.selectedKind === "node" && props.selectedId === node.id} onSelect={() => props.onNodeSelect(node.id)} />}</For>
+          <div class="node-bank" role="group" aria-label="Foreign servers"
+            style={{ "--bank-x": `${layout().foreignLabel.x}px`, "--bank-y": `${layout().foreignLabel.y}px` }}>
+            <h3>Foreign <small>{layout().foreign.length}</small></h3>
+            <Index each={layout().foreign} fallback={<p>No foreign servers</p>}>{(item) =>
+              <MapNode item={item()} selected={props.selection?.kind === "node" && props.selection.id === item().node.id} onSelect={selectNode} />
+            }</Index>
           </div>
         </div>
-      </div>
-      <div class="map-zoom" onClick={(event) => event.stopPropagation()}><button type="button" aria-label="Rotate graph layout" aria-pressed={vertical()} title="Rotate graph layout" onClick={() => { setVertical(!vertical()); viewport.reset(); }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="7" y="4" width="10" height="16" rx="2" /><path d="M10 17h4M3 10a9 9 0 0 1 15-6m0-3v3h-3M21 14a9 9 0 0 1-15 6m0 3v-3h3" /></svg></button><button type="button" aria-label="Zoom out" onClick={() => viewport.zoom(1 / 1.2)}>−</button><span>{Math.round(viewport.view().scale * 100)}%</span><button type="button" aria-label="Zoom in" onClick={() => viewport.zoom(1.2)}>+</button></div>
-    </section>
-  );
+      </Show>
+    </div>
+    <footer class="map-footer">
+      <span class="map-footer__hint">{layout().unmapped ? `${layout().unmapped} unmapped in inventory` : "Drag to pan"}<span> / </span><span>{portrait() ? "Pinch to zoom" : "Select to inspect"}</span></span>
+      <MapControls rotated={rotated()} fitted={isFitted()} scale={camera.view().scale} renderedScale={placement().scale}
+        onRotate={() => { rotate(); reset(); }} onFit={() => { if (!fitted() || isFitted()) toggleFit(); reset(); }} onZoom={camera.zoom} />
+    </footer>
+  </section></div>;
 }
