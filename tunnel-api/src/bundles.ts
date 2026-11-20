@@ -154,11 +154,9 @@ export async function handleBundleActivation(request: Request, env: Env): Promis
          ON CONFLICT(version, architecture) DO UPDATE SET
            sha256 = CASE WHEN sha256=excluded.sha256 AND inventory_sha256 IS excluded.inventory_sha256
                          THEN sha256 ELSE NULL END,
-           public_url = excluded.public_url,
-           domestic_url = excluded.domestic_url,
-           domestic_urls = excluded.domestic_urls,
-           ${column} = 1,
-           created_at = excluded.created_at`,
+           domestic_url = CASE WHEN active=1 THEN domestic_url ELSE COALESCE(excluded.domestic_url, domestic_url) END,
+           domestic_urls = CASE WHEN active=1 OR excluded.domestic_url IS NULL THEN domestic_urls ELSE excluded.domestic_urls END,
+           ${column} = 1`,
       ).bind(
         activation.version,
         bundle.architecture,

@@ -108,6 +108,9 @@ async function verifyReleaseScope(worker, env, call, cluster, otherCluster, scop
   await gets(scoped,"v1");
   assert.equal((await activate("stable",bundles)).status,200);
   await gets(scoped,"v0.5.1");
+  assert.equal((await activate("testing",bundles.map(bundle => ({ ...bundle, domestic_urls: [] })))).status,200);
+  const mirrors = await env.DB.prepare("SELECT domestic_url FROM bundle_releases WHERE active=1 AND version='v0.5.1'").all();
+  assert.deepEqual(mirrors.results.map(row => row.domestic_url), ["https://mirror.example/bundle.parts", "https://mirror.example/bundle.parts"]);
   assert.equal((await activate("testing",forVersion("v0.5.2"),"v0.5.2")).status,200);
   await gets(scoped,"v0.5.1");
   assert.equal((await call(track(cluster),{track:"testing"})).status,200);
