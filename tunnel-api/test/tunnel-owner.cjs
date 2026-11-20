@@ -5,6 +5,7 @@ const { createHash, createHmac, randomUUID } = require("node:crypto");
 const { join } = require("node:path");
 const { getPlatformProxy } = require("wrangler");
 const { build } = require("esbuild");
+const { verifyIngress } = require("./ingress-owner.cjs");
 
 const bot = "integration-test-token";
 
@@ -271,5 +272,6 @@ test("worker creates and controls a paired lane without exposing its capability"
     await recordPhase("removed");
     assert((await docs()).results.every(row=>JSON.parse(row.manifest_json).tunnels.length===0));
     await verifyManagedTransports(worker, env, call, path, config, docs);
+    await verifyIngress({ env, call, path, config, report: (keys) => recordTransportKeys(worker, env, listener, keys), keys: keyFixture(1) });
   } finally { await platform.dispose(); }
 });

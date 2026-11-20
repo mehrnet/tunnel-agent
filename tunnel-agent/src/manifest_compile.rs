@@ -58,6 +58,13 @@ fn compile_plan(
         agent_lanes.push(plan);
     }
 
+    crate::ingress::compile(
+        config,
+        state_dir,
+        &mut processes,
+        &mut generated_files,
+        &mut listeners,
+    )?;
     validate_processes(&processes)?;
     validate_listener_conflicts(&listeners)?;
     Ok(CompiledPlan {

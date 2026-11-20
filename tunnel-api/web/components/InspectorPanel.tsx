@@ -5,6 +5,7 @@ import { formatMoment, formatProbe, formatRate, laneState, laneStatus, probeLabe
 import { StatIcon } from "./StatIcon";
 import { BootstrapField } from "./BootstrapField";
 import { TunnelControls } from "./TunnelEditor";
+import { PublicIngress } from "./PublicIngress";
 
 interface InspectorPanelProps {
   cluster: ClusterResponse;
@@ -94,7 +95,10 @@ export function InspectorPanel(props: InspectorPanelProps) {
   return (
     <section class="inspection-panel" aria-labelledby="inspection-title">
       <div class="panel-heading"><div><p class="section-label">SELECTION</p><h2 id="inspection-title">Details</h2></div></div>
-      <Show when={selectedLane()} fallback={<Show when={selectedNode()} fallback={<p class="inspection-empty">Select a node or connection.</p>}>{(node) => <NodeInspection node={node()} initData={props.initData} refresh={props.refresh} />}</Show>}>
+      <Show when={selectedLane()} fallback={<Show when={selectedNode()} fallback={<p class="inspection-empty">Select a node or connection.</p>}>{(node) => <>
+        <NodeInspection node={node()} initData={props.initData} refresh={props.refresh} />
+        <Show when={props.initData && node().status === "enrolled"}><PublicIngress node={node()} cluster={props.cluster} initData={props.initData} refresh={props.refresh} /></Show>
+      </>}</Show>}>
         {(lane) => <><LaneInspection lane={lane()} nodes={props.cluster.nodes} />
           <TunnelControls lane={lane()} clusterId={props.cluster.cluster.id} initData={props.initData} saved={props.refresh} /></>}
       </Show>

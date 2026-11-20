@@ -22,6 +22,8 @@ pub struct Config {
     #[serde(default)]
     pub tunnels: Vec<TunnelSpec>,
     #[serde(default)]
+    pub(crate) public_ingress: Option<Vec<crate::ingress::PublicPort>>,
+    #[serde(default)]
     pub agent: AgentSpec,
 }
 

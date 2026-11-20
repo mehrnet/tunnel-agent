@@ -13,6 +13,7 @@ export interface ObservatoryNode extends NodeRow {
 
 export interface NodeDocumentRow {
   node_id: string;
+  revision: number;
   manifest_json: string;
   updated_at: number;
 }
@@ -44,7 +45,7 @@ export async function observatoryNodes(env: Env, ownerId: string, clusterId: str
 
 export async function observatoryDocuments(env: Env, clusterId: string): Promise<NodeDocumentRow[]> {
   const rows = await env.DB.prepare(
-    `SELECT d.node_id, d.manifest_json, d.updated_at FROM node_documents d
+    `SELECT d.node_id, d.revision, d.manifest_json, d.updated_at FROM node_documents d
        JOIN cluster_nodes cn ON cn.node_id = d.node_id
       WHERE cn.cluster_id = ?`,
   ).bind(clusterId).all<NodeDocumentRow>();

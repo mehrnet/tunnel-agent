@@ -61,6 +61,9 @@ fn read_revision(path: &Path) -> Result<u64, String> {
 }
 
 fn ensure_compatible_document(current: &Config, candidate: &Config) -> Result<(), String> {
+    if current.public_ingress.is_some() && candidate.public_ingress.is_none() {
+        return Err("set public_ingress to [] to remove managed rules".to_owned());
+    }
     if current.version != 3 || candidate.version != 3 {
         return Err("agent accepts version 3 manifests only".to_owned());
     }

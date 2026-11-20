@@ -312,7 +312,7 @@ fn quoted_path(path: &Path) -> String {
         .replace('"', "\\\"")
 }
 
-fn valid_host(host: &str) -> bool {
+pub(crate) fn valid_host(host: &str) -> bool {
     !host.is_empty()
         && host.len() <= 253
         && host.split('.').all(|label| {

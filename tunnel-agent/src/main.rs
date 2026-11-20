@@ -7,6 +7,7 @@ mod capsule;
 mod foreign_update;
 mod hpn_server_worker;
 mod identity;
+mod ingress;
 mod managed_reverse;
 mod manifest;
 mod relay;
@@ -44,6 +45,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum CommandKind {
+    #[command(hide = true)]
+    PublicIngressWorker {
+        #[arg(long)]
+        config: PathBuf,
+    },
     #[command(hide = true)]
     HpnServerWorker {
         #[arg(long)]
@@ -198,6 +204,10 @@ async fn main() -> ExitCode {
 
 async fn execute(command: CommandKind) -> ExitCode {
     match command {
+        CommandKind::PublicIngressWorker { config } => ingress::run(&config).map_or_else(
+            |error| failure("public ingress worker failed", error),
+            |()| ExitCode::SUCCESS,
+        ),
         CommandKind::HpnServerWorker { binary, config } => {
             hpn_server_worker::run(&binary, &config).await.map_or_else(
                 |error| failure("HPNSSH worker failed", error),

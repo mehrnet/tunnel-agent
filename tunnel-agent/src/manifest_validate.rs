@@ -26,6 +26,12 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
 
     validate_processes(&config.processes)?;
     validate_artifacts(&config.artifacts)?;
+    if let Some(ingress) = &config.public_ingress {
+        if config.version != 3 {
+            return Err("public ingress requires version 3".to_owned());
+        }
+        crate::ingress::valid(ingress)?;
+    }
     validate_tunnels(config)
 }
 

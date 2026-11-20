@@ -28,6 +28,7 @@ interface Manifest {
   version: number;
   tunnels: Contract[];
   agent: { lanes: Array<{ listener?: { port: number }; hpnssh?: { server?: { port: number } } }> };
+  public_ingress?: Array<{ port: number; lane_id: string; fallback_lane_id: string | null }>;
 }
 
 export async function getIntent(env: Env, cluster: string, id: string) {
@@ -74,6 +75,7 @@ function manifest(row: Endpoint, id: string): Manifest {
 
 function checkPorts(doc: Manifest, intent: Intent) {
   const ports = new Set([intent.control_port, intent.listener_port]);
+  if (doc.public_ingress?.some((route) => ports.has(route.port))) throw new Error("Port reserved for public ingress");
   for (const lane of doc.agent.lanes) {
     if (ports.has(lane.listener?.port ?? 0) || ports.has(lane.hpnssh?.server?.port ?? 0)) throw new Error("Port reserved by a management lane");
   }
@@ -138,6 +140,9 @@ export async function reconcileTunnel(env: Env, intent: Intent, operation: "crea
   const { source, listener, host } = await endpoints(env, intent);
   const sourceDoc = manifest(source, intent.id);
   const listenerDoc = manifest(listener, intent.id);
+  if (operation !== "create" && listenerDoc.public_ingress?.some(
+    (route) => route.lane_id === intent.id || route.fallback_lane_id === intent.id,
+  )) throw new Error("Remove this lane from public ingress before changing it");
   if (operation !== "remove") {
     await reservePorts(env, intent);
     checkPorts(listenerDoc, intent);

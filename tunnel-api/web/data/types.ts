@@ -60,6 +60,14 @@ export interface ClusterResponse {
   cluster: ClusterSummary;
   nodes: ClusterNode[];
   lanes: TunnelLane[];
+  document_revisions?: Record<string, number>;
+  public_ingress?: Array<{
+    node_id: string;
+    port: number;
+    lane_id: string;
+    fallback_lane_id: string | null;
+    tls_server_name: string;
+  }>;
 }
 
 export type Selection =

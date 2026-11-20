@@ -1,4 +1,5 @@
 import { error, json } from "./http";
+import { presentIngress } from "./ingress-store";
 import type { Env } from "./models";
 import { observatoryLanes } from "./observatory-lanes";
 import { observatoryDocuments, observatoryLaneMetrics, observatoryNodes } from "./observatory-store";
@@ -36,6 +37,8 @@ export async function handleWebCluster(request: Request, env: Env, clusterId: st
     generated_at: timestamp,
     cluster,
     nodes: nodes.map((node) => toNode(node, map.expiresAt(node.last_heartbeat_at, node.id, node.heartbeat_reporter_id))),
+    document_revisions: Object.fromEntries(documents.map(({node_id,revision}) => [node_id, revision])),
+    public_ingress: presentIngress(documents, cluster.id),
     lanes: await map.lanes(nodes, managed),
   });
 }

@@ -3,6 +3,7 @@ import { base64Standard } from "./encoding";
 export interface TransportKeys {
   hpnssh: string | null;
   rathole: string | null;
+  kernel_ingress?: boolean;
 }
 
 function hpnKey(value: string): boolean {
@@ -20,8 +21,9 @@ function noiseKey(value: string): boolean {
 
 export function parseTransportKeys(value: unknown): TransportKeys | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const { hpnssh, rathole } = value as Record<string, unknown>;
+  const { hpnssh, rathole, kernel_ingress } = value as Record<string, unknown>;
   if (hpnssh !== null && (typeof hpnssh !== "string" || !hpnKey(hpnssh))) return null;
   if (rathole !== null && (typeof rathole !== "string" || !noiseKey(rathole))) return null;
-  return { hpnssh, rathole };
+  if (kernel_ingress !== undefined && typeof kernel_ingress !== "boolean") return null;
+  return { hpnssh, rathole, kernel_ingress };
 }

@@ -14,7 +14,17 @@ import { handleWebCluster, handleWebClusters } from "./web";
 import { webSessionCookie } from "./web-auth";
 import { handleWebNode } from "./web-nodes";
 import { handleWebTunnel } from "./web-tunnels";
+import { handleWebIngress } from "./web-ingress";
 import { handleNodeLifecycle } from "./lifecycle";
+
+function clusterAction(request: Request, env: Env, pathname: string) {
+  const path = pathname.match(/^\/api\/v1\/web\/clusters\/([0-9a-f-]{36})\/(release-track|public-ingress|tunnels)(?:\/([0-9a-f-]{36}))?$/);
+  if (!path) return null;
+  const [, cluster, action, lane] = path;
+  if (action === "tunnels") return handleWebTunnel(request, env, cluster, lane);
+  if (lane) return null;
+  return action === "release-track" ? handleReleaseTrack(request, env, cluster) : handleWebIngress(request, env, cluster);
+}
 
 async function handleApi(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
@@ -22,10 +32,8 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext): Pro
   if (url.pathname === "/api/telegram/webhook") return handleTelegram(request, env, ctx);
   if (url.pathname === "/api/v1/web/clusters") return handleWebClusters(request, env);
   if (url.pathname === "/api/v1/web/nodes") return handleWebNode(request, env);
-  const track = url.pathname.match(/^\/api\/v1\/web\/clusters\/([0-9a-f-]{36})\/release-track$/);
-  if (track) return handleReleaseTrack(request, env, track[1]);
-  const tunnel = url.pathname.match(/^\/api\/v1\/web\/clusters\/([0-9a-f-]{36})\/tunnels(?:\/([0-9a-f-]{36}))?$/);
-  if (tunnel) return handleWebTunnel(request, env, tunnel[1], tunnel[2]);
+  const action = clusterAction(request, env, url.pathname);
+  if (action) return action;
   const lifecycle = url.pathname.match(/^\/api\/v1\/web\/nodes\/([0-9a-f-]{36})\/lifecycle$/);
   if (lifecycle) return handleNodeLifecycle(request, env, lifecycle[1]);
   const grant = url.pathname.match(/^\/api\/v1\/web\/nodes\/([0-9a-f-]{36})\/domestic-grant$/);

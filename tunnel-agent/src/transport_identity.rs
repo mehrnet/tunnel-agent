@@ -17,6 +17,8 @@ const HPN_PRIVSEP_USER: &str = "hpnsshd";
 pub(crate) struct TransportKeys {
     pub(crate) hpnssh: Option<String>,
     pub(crate) rathole: Option<String>,
+    #[serde(default)]
+    pub(crate) kernel_ingress: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -80,7 +82,11 @@ pub(crate) fn provision(bundle: &Path, state: &Path) -> TransportKeys {
     }
     let hpnssh = report(provision_ssh(bundle, state));
     let rathole = report(provision_noise(bundle, state));
-    TransportKeys { hpnssh, rathole }
+    TransportKeys {
+        hpnssh,
+        rathole,
+        kernel_ingress: crate::ingress::available(),
+    }
 }
 
 fn report(result: Result<String, String>) -> Option<String> {

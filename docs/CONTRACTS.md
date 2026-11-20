@@ -176,8 +176,23 @@ network reachability to the selected control port, including any provider
 firewall rules.
 
 The local listener probe checks reachability, not an application transaction.
-Public ingress mapping and switching a public port between lanes are not
-part of this contract.
+
+## Switching Public Ingress
+
+On a Linux node advertising kernel ingress support, the owner can select an
+IPv4 TCP port and two enabled lanes with separate loopback ports, the same
+connector, and the same destination. The public port is a separate resource:
+switching the preferred lane does not restart either tunnel. Both lane port
+claims remain reserved. Revision checks reject concurrent changes made
+against the same manifest.
+
+This selector is for TLS services with a trusted certificate. The agent probes
+the destination through the candidate lane using its TLS hostname. It updates
+only its own DNAT chain in a kernel transaction; established connections keep
+their previous NAT mappings. If repeated probes fail on the preferred lane,
+new connections can use the verified fallback. If neither lane passes, the
+agent keeps the current mapping rather than replacing it with an unverified
+one. The dashboard shows the requested preference, not a kernel health claim.
 
 ## HPNSSH
 
