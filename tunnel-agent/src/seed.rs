@@ -1,11 +1,4 @@
-use std::{
-    collections::HashMap,
-    fs::{self, File},
-    io::{BufRead, BufReader, Read, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{fs, io::Write, net::TcpStream, path::Path, process::Command};
 
 use crate::manifest::{Config, NodeScope};
 use crate::seed_client::SeedSource;
@@ -14,13 +7,14 @@ use crate::{
     release::{
         BundleFile, BundleIndex, INDEX_NAME, ReleaseDocument, as_utf8, cache_link_or_copy,
         ensure_index_matches_document, local_architecture, parse_index, set_mode, sha256_bytes,
-        unique_suffix, valid_hash, verify_file, verify_release_document,
+        unique_suffix, verify_file, verify_release_document,
     },
 };
 
 const MAX_DOCUMENT_BYTES: u64 = 16_384;
+pub(crate) const MAX_RELAY_DOCUMENT_BYTES: u64 = 16_384;
 const MAX_INDEX_BYTES: u64 = 1_048_576;
-const MAX_TELEMETRY_BYTES: usize = 16_384;
+pub(crate) use crate::seed_server::serve;
 
 pub(crate) struct SeedResult {
     pub(crate) version: String,
@@ -30,56 +24,12 @@ pub(crate) struct SeedResult {
     pub(crate) activated: bool,
 }
 
-struct ServeState {
-    document: Vec<u8>,
-    index: Vec<u8>,
-    blobs: HashMap<String, PathBuf>,
-}
-
-pub(crate) fn serve(
-    root: &Path,
-    listener: SocketAddr,
-    document_path: &Path,
-    relay_directory: Option<&Path>,
-) -> Result<(), String> {
-    if !listener.ip().is_loopback() {
-        return Err("seed listener must bind to a loopback address".to_owned());
-    }
-    let mut state = load_serve_state(root, document_path)?;
-    let socket = TcpListener::bind(listener)
-        .map_err(|error| format!("cannot bind seed listener {listener}: {error}"))?;
-    eprintln!("serving bundle seed on {listener}");
-    for connection in socket.incoming() {
-        match connection {
-            Ok(stream) => {
-                if fs::read(document_path).ok().as_deref() != Some(&state.document) {
-                    state = load_serve_state(root, document_path)?;
-                    eprintln!("reloaded bundle seed release document");
-                }
-                if let Err(error) = serve_connection(stream, &state, relay_directory) {
-                    eprintln!("seed request failed: {error}");
-                }
-            }
-            Err(error) => eprintln!("seed listener accept failed: {error}"),
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn fetch_relay_document(source: &str, node_id: &str) -> Result<String, String> {
-    if !valid_uuid(node_id) {
-        return Err("relay node id is invalid".to_owned());
-    }
-    let source = SeedSource::new(source)?;
-    let raw = source.get_bytes(&format!("/v1/relay/{node_id}"), MAX_DOCUMENT_BYTES)?;
-    String::from_utf8(raw).map_err(|_| "relay response is not UTF-8".to_owned())
-}
-
 pub(crate) fn ping_relay(source: &str, node_id: &str) -> Result<(), String> {
     if !valid_uuid(node_id) {
         return Err("relay node id is invalid".to_owned());
     }
-    SeedSource::new(source)?.get_bytes(&format!("/v1/ping/{node_id}"), 0)?;
+    SeedSource::with_timeout(source, crate::agent_poll::CONFIG_REQUEST_TIMEOUT)?
+        .get_bytes(&format!("/v1/ping/{node_id}"), 0)?;
     Ok(())
 }
 
@@ -98,24 +48,53 @@ pub(crate) fn apply(root: &Path, source: &str, activate: bool) -> Result<SeedRes
     install_seeded_release(root, &source, &document, &index, &raw_index, activate)
 }
 
-pub(crate) async fn apply_configured(config: &Config) -> Result<Option<SeedResult>, String> {
+pub(crate) struct StagedSeed {
+    source: String,
+    version: String,
+}
+
+pub(crate) fn stage_configured(config: &Config) -> Result<Option<StagedSeed>, String> {
     if config.node_scope != NodeScope::Domestic {
         return Err("only domestic agents may apply a peer-seeded bundle".to_owned());
     }
     let Some(seed_config) = config.agent.bundle_seed.as_ref() else {
         return Ok(None);
     };
-    let source = seed_config.source.clone();
-    let root = config
+    let root = configured_root(config)?;
+    let result = apply(root, &seed_config.source, false)?;
+    let candidate = root.join("releases").join(&result.version);
+    Ok((!is_current_release(root, &candidate)).then(|| StagedSeed {
+        source: seed_config.source.clone(),
+        version: result.version,
+    }))
+}
+
+pub(crate) fn activate_configured(
+    config: &Config,
+    staged: Result<Option<StagedSeed>, String>,
+) -> Result<Option<String>, String> {
+    let Some(StagedSeed { source, version }) = staged? else {
+        return Ok(None);
+    };
+    if !config
+        .agent
+        .bundle_seed
+        .as_ref()
+        .is_some_and(|seed| seed.source == source)
+    {
+        return Ok(None);
+    }
+    let root = configured_root(config)?;
+    activate_release(root, &root.join("releases").join(&version))?;
+    Ok(Some(version))
+}
+
+fn configured_root(config: &Config) -> Result<&Path, String> {
+    config
         .bundle
         .as_ref()
         .and_then(|bundle| bundle.root.parent())
-        .ok_or_else(|| "bundle.root has no agent root directory".to_owned())?
-        .to_path_buf();
-    tokio::task::spawn_blocking(move || apply(&root, &source, true))
-        .await
-        .map_err(|error| format!("seed update task failed: {error}"))?
-        .map(Some)
+        .ok_or_else(|| "bundle.root has no agent root directory".to_owned())
 }
 
 pub(crate) fn restart_service(name: &str) -> Result<(), String> {
@@ -135,134 +114,6 @@ pub(crate) fn restart_service(name: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("systemctl restart {name} exited with {status}"))
-    }
-}
-
-fn load_serve_state(root: &Path, document_path: &Path) -> Result<ServeState, String> {
-    let architecture = local_architecture()?;
-    let document = fs::read(document_path)
-        .map_err(|error| format!("cannot read {}: {error}", document_path.display()))?;
-    let release = verify_release_document(
-        as_utf8(&document, "cached release document")?,
-        &architecture,
-    )?;
-    let current = fs::canonicalize(root.join("current"))
-        .map_err(|error| format!("cannot resolve seed release: {error}"))?;
-    let index = fs::read(current.join(INDEX_NAME))
-        .map_err(|error| format!("cannot read current bundle index: {error}"))?;
-    if sha256_bytes(&index) != release.inventory_sha256 {
-        return Err("current bundle index does not match the cached release document".to_owned());
-    }
-    let parsed = parse_index(as_utf8(&index, "current bundle inventory")?)?;
-    ensure_index_matches_document(&parsed, &release)?;
-    let blobs = parsed
-        .files
-        .into_iter()
-        .try_fold(HashMap::new(), |mut blobs, file| {
-            let path = current.join(&file.path);
-            verify_file(&path, &file)?;
-            blobs.entry(file.sha256).or_insert(path);
-            Ok::<_, String>(blobs)
-        })?;
-    Ok(ServeState {
-        document,
-        index,
-        blobs,
-    })
-}
-
-fn serve_connection(
-    stream: TcpStream,
-    state: &ServeState,
-    relay_directory: Option<&Path>,
-) -> Result<(), String> {
-    let mut reader = BufReader::new(stream);
-    let mut request = String::new();
-    reader
-        .read_line(&mut request)
-        .map_err(|error| format!("cannot read seed request: {error}"))?;
-    let content_length = drain_headers(&mut reader)?;
-    let method = request.split_whitespace().next().unwrap_or_default();
-    let path = request.split_whitespace().nth(1).unwrap_or_default();
-    if method == "POST" && path.starts_with("/v1/telemetry/") {
-        if content_length > MAX_TELEMETRY_BYTES {
-            let mut stream = reader.into_inner();
-            return write_response(&mut stream, 413, "text/plain", b"payload too large\n");
-        }
-        let mut body = vec![0; content_length];
-        reader
-            .read_exact(&mut body)
-            .map_err(|error| format!("cannot read telemetry request body: {error}"))?;
-        let mut stream = reader.into_inner();
-        return crate::seed_relay::serve_telemetry(&mut stream, path, &body, relay_directory);
-    }
-    let mut stream = reader.into_inner();
-    if method != "GET" {
-        return write_response(&mut stream, 405, "text/plain", b"method not allowed\n");
-    }
-    match path {
-        "/v1/release" => write_response(&mut stream, 200, "application/json", &state.document),
-        "/v1/index" => write_response(&mut stream, 200, "application/json", &state.index),
-        value if value.starts_with("/v1/relay/") => {
-            crate::seed_relay::serve_document(&mut stream, value, relay_directory)
-        }
-        value if value.starts_with("/v1/ping/") => {
-            crate::seed_relay::serve_ping(&mut stream, value, relay_directory)
-        }
-        _ => serve_blob(&mut stream, path, state),
-    }
-}
-
-fn serve_blob(stream: &mut TcpStream, path: &str, state: &ServeState) -> Result<(), String> {
-    let hash = path
-        .strip_prefix("/v1/blob/")
-        .filter(|value| valid_hash(value));
-    let Some(hash) = hash else {
-        return write_response(stream, 404, "text/plain", b"not found\n");
-    };
-    let Some(source) = state.blobs.get(hash) else {
-        return write_response(stream, 404, "text/plain", b"not found\n");
-    };
-    let size = fs::metadata(source)
-        .map_err(|error| format!("cannot stat seed blob: {error}"))?
-        .len();
-    write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {size}\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n")
-        .map_err(|error| format!("cannot write seed response: {error}"))?;
-    let mut source =
-        File::open(source).map_err(|error| format!("cannot open seed blob: {error}"))?;
-    std::io::copy(&mut source, stream)
-        .map_err(|error| format!("cannot write seed blob: {error}"))?;
-    Ok(())
-}
-
-fn drain_headers(reader: &mut BufReader<TcpStream>) -> Result<usize, String> {
-    let mut bytes = 0_usize;
-    let mut content_length = None;
-    loop {
-        let mut line = String::new();
-        reader
-            .read_line(&mut line)
-            .map_err(|error| format!("cannot read seed request headers: {error}"))?;
-        bytes += line.len();
-        if bytes > 8_192 {
-            return Err("seed request headers exceed 8192 bytes".to_owned());
-        }
-        if line == "\r\n" || line.is_empty() {
-            return Ok(content_length.unwrap_or(0));
-        }
-        if let Some((name, value)) = line.trim().split_once(':')
-            && name.eq_ignore_ascii_case("content-length")
-        {
-            if content_length.is_some() {
-                return Err("seed request has duplicate content-length headers".to_owned());
-            }
-            content_length = Some(
-                value
-                    .trim()
-                    .parse::<usize>()
-                    .map_err(|_| "seed request has an invalid content-length".to_owned())?,
-            );
-        }
     }
 }
 

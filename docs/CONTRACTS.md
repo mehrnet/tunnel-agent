@@ -53,6 +53,7 @@ foreign-to-domestic reverse forward:
 ```json
 {
   "agent": {
+    "config_poll_interval_secs": 5,
     "poll_interval_secs": 30,
     "max_active_lanes": 2,
     "lanes": [{
@@ -113,9 +114,10 @@ must never bind a public address.
 3. `seed-serve` verifies that its current release matches the signed document,
    then exposes `/v1/release`, `/v1/index`, `/v1/blob/<sha256>`, a signed
    per-domestic-node `/v1/relay/<node-id>` document, and
-   `/v1/ping/<node-id>` on a loopback listener. A valid relay fetch or ping
-   records a local foreign-relay timestamp for that domestic node. It never
-   serves arbitrary paths.
+   `/v1/ping/<node-id>` on a loopback listener. A valid ping records a local
+   foreign-relay timestamp for that domestic node. The relay can serve signed
+   config and pings even if a release cannot be served. It never serves
+   arbitrary paths.
 4. A domestic node accepts only a signature made by the compiled API public
    key. It checks the index hash, release version, architecture, every blob's
    size and SHA-256, and every staged file before promotion.
@@ -141,6 +143,16 @@ privileged ports. It is valid only for a domestic v3 manifest. The offline
 domestic agent does not contact the API: after a verified changed release is
 activated, it stops its contracts and exits successfully, allowing its
 `Restart=always` systemd service to start the new binary.
+
+Desired config polling is independent of bundle updates and telemetry.
+`agent.config_poll_interval_secs` defaults to 5 seconds on both types of node
+and accepts integers from 5 to 3600. Foreign relays check both their own
+document and their authorized domestic snapshots; unchanged responses are
+conditional. Domestic agents check their signed document through their
+configured management lane only. Keep the optional field out of documents
+delivered to agents that predate it. `agent.poll_interval_secs` controls
+heartbeat and telemetry (60 seconds by default), and the domestic bundle poll
+remains at 300 seconds by default.
 
 ## HPNSSH
 

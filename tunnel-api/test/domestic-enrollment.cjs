@@ -18,10 +18,31 @@ function proof(pair, grant, nodeId) {
   return { grant, public_key, signature: sign(null,Buffer.from(payload),pair.privateKey).toString("base64") };
 }
 
+async function relaySnapshot(worker, env, nodeId, token, etag) {
+  const headers = new Headers();
+  if (token) headers.set("authorization", `Bearer ${nodeId}.${token}`);
+  if (etag) headers.set("if-none-match", etag);
+  return worker.fetch(new Request(`https://test.invalid/api/v1/nodes/${nodeId}/relay-documents`, { headers }), env, {});
+}
+
+async function checkRelayCache(worker, env, relay, domestic, secret) {
+  const snapshot = await relaySnapshot(worker, env, relay, secret);
+  assert.equal(snapshot.status, 200);
+  const tag = snapshot.headers.get("etag");
+  assert.ok(tag);
+  assert.deepEqual((await snapshot.json()).documents.map(row => row.node_id), [domestic]);
+  const unchanged = await relaySnapshot(worker, env, relay, secret, tag);
+  assert.equal(unchanged.status, 304);
+  assert.equal(await unchanged.text(), "");
+  assert.equal((await relaySnapshot(worker, env, relay, null, tag)).status, 401);
+  return tag;
+}
+
 test("domestic proof is relay-scoped; reinstall, rotation, and retirement invalidate old identities", async () => {
   const platform = await getPlatformProxy({ persist: false });
   try {
-    const env = { ...platform.env, TELEGRAM_BOT_TOKEN: "domestic-test-bot" };
+    const signingKey = generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "der" });
+    const env = { ...platform.env, TELEGRAM_BOT_TOKEN: "domestic-test-bot", CAPSULE_SIGNING_PRIVATE_KEY: signingKey.toString("base64") };
     const bundle = await build({ entryPoints: ["src/worker.ts"], bundle:true, format:"esm", write:false });
     const { default: worker } = await import("data:text/javascript;base64,"+Buffer.from(bundle.outputFiles[0].contents).toString("base64"));
     for (const name of readdirSync("migrations").filter(n => n.endsWith(".sql")).sort()) {
@@ -67,6 +88,12 @@ test("domestic proof is relay-scoped; reinstall, rotation, and retirement invali
     assert.equal(competing.filter(reply=>reply.status===200).length,1);
     assert.deepEqual(await snapshot(),{status:"enrolled",public_key:first.public_key});
     assert.equal((await submit(first)).status,401);
+    const originalTag = await checkRelayCache(worker, env, relay, domestic, secret);
+    await run("UPDATE node_documents SET revision=revision+1 WHERE node_id=?",domestic);
+    const updated = await relaySnapshot(worker, env, relay, secret, originalTag);
+    assert.equal(updated.status, 200);
+    const updatedTag = updated.headers.get("etag");
+    assert.notEqual(updatedTag, originalTag);
     for (const action of ["reinstall","rotate"]) {
       assert.equal((await lifecycle(action)).status,200);
       assert.deepEqual(await snapshot(),{status:"pending",public_key:null});
@@ -80,6 +107,9 @@ test("domestic proof is relay-scoped; reinstall, rotation, and retirement invali
     assert.deepEqual(await snapshot(),{status:"revoked",public_key:null});
     assert.equal((await owner(grantPath,{})).status,409);
     assert.equal((await submit(first)).status,403);
+    const removed = await relaySnapshot(worker, env, relay, secret, updatedTag);
+    assert.equal(removed.status, 200);
+    assert.deepEqual((await removed.json()).documents, []);
     assert.equal(await env.DB.prepare("SELECT COUNT(*) AS n FROM cluster_nodes WHERE node_id=?").bind(domestic).first("n"),0);
   } finally { await platform.dispose(); }
 });

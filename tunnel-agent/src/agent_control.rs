@@ -4,7 +4,11 @@ use std::{
     path::Path,
 };
 
-use reqwest::{blocking::Client, header::CONTENT_TYPE};
+use reqwest::{
+    StatusCode,
+    blocking::Client,
+    header::{CONTENT_TYPE, ETAG, IF_NONE_MATCH},
+};
 use serde::Deserialize;
 
 use crate::{
@@ -44,7 +48,6 @@ struct RelayHeartbeat {
 
 pub(crate) fn prepare(
     config: &Config,
-    state_dir: &Path,
     client: &Client,
     api_url: &str,
     node_id: &str,
@@ -76,10 +79,10 @@ pub(crate) fn prepare(
             .expect("inserted cluster control key");
         write_file(Path::new(&client_spec.identity_file), key, 0o600)?;
     }
-    refresh_cache(config, state_dir, client, api_url, node_id, node_token)
+    Ok(())
 }
 
-pub(crate) fn refresh_cache(
+pub(crate) fn refresh_housekeeping(
     config: &Config,
     state_dir: &Path,
     client: &Client,
@@ -95,21 +98,18 @@ pub(crate) fn refresh_cache(
         .as_ref()
         .ok_or_else(|| "foreign agent manifest has no bundle root".to_owned())?
         .root;
-    let _ = release::cache_seed_release_document(
+    if let Err(error) = release::cache_seed_release_document(
         api_url,
         node_id,
         node_token,
         bundle_root,
         &state_dir.join("release-document.json"),
-    )?;
-    refresh_relay_documents(
-        client,
-        api_url,
-        node_id,
-        node_token,
-        &state_dir.join("relay-documents"),
-    )?;
-    report_relay_heartbeats(client, api_url, node_id, node_token, state_dir)?;
+    ) {
+        eprintln!("release cache refresh failed: {error}");
+    }
+    if let Err(error) = report_relay_heartbeats(client, api_url, node_id, node_token, state_dir) {
+        eprintln!("relay heartbeat report failed: {error}");
+    }
     telemetry::report_relay_telemetry(client, api_url, node_id, node_token, state_dir)
 }
 
@@ -126,7 +126,7 @@ fn active_clients(config: &Config) -> impl Iterator<Item = &crate::agent_lane::A
         .filter(move |lane| selected.contains(&lane.id) && lane.role == AgentLaneRole::Client)
 }
 
-fn has_active_client(config: &Config) -> bool {
+pub(crate) fn has_active_client(config: &Config) -> bool {
     config.node_scope == NodeScope::Foreign && active_clients(config).next().is_some()
 }
 
@@ -167,22 +167,31 @@ fn fetch_control_key(
     Ok(key)
 }
 
-fn refresh_relay_documents(
+pub(crate) fn refresh_relay_documents(
     client: &Client,
     api_url: &str,
     node_id: &str,
     node_token: &str,
     directory: &Path,
-) -> Result<(), String> {
+    etag: Option<String>,
+) -> Result<Option<String>, String> {
     let endpoint = format!(
         "{}/v1/nodes/{node_id}/relay-documents",
         api_url.trim_end_matches('/')
     );
-    let response = client
+    let mut request = client
         .get(endpoint)
         .bearer_auth(node_token)
+        .timeout(crate::agent_poll::CONFIG_REQUEST_TIMEOUT);
+    if let Some(tag) = &etag {
+        request = request.header(IF_NONE_MATCH, tag);
+    }
+    let response = request
         .send()
         .map_err(|error| format!("cannot fetch relay documents: {error}"))?;
+    if response.status() == StatusCode::NOT_MODIFIED {
+        return Ok(etag);
+    }
     if !response.status().is_success() {
         return Err(format!(
             "relay documents request returned HTTP {}",
@@ -195,6 +204,11 @@ fn refresh_relay_documents(
     {
         return Err("relay documents response exceeds maximum size".to_owned());
     }
+    let etag = response
+        .headers()
+        .get(ETAG)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let body = response
         .text()
         .map_err(|error| format!("cannot read relay documents response: {error}"))?;
@@ -206,7 +220,8 @@ fn refresh_relay_documents(
     if response.documents.len() > MAX_RELAY_DOCUMENTS {
         return Err("relay documents response has too many entries".to_owned());
     }
-    cache_relay_documents(directory, response.documents)
+    cache_relay_documents(directory, response.documents)?;
+    Ok(etag)
 }
 
 fn cache_relay_documents(directory: &Path, documents: Vec<RelayDocument>) -> Result<(), String> {

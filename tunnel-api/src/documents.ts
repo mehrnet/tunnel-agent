@@ -5,7 +5,7 @@ import { BUNDLE_ROOT, now } from "./validation";
 export const MAX_MANIFEST_BYTES = 256 * 1024;
 
 const ROOT_FIELDS = new Set(["version", "node_scope", "bundle", "agent", "tunnels"]);
-const AGENT_FIELDS = new Set(["poll_interval_secs", "max_active_lanes", "lanes", "bundle_seed"]);
+const AGENT_FIELDS = new Set(["config_poll_interval_secs", "poll_interval_secs", "max_active_lanes", "lanes", "bundle_seed"]);
 const CONTRACTS = new Set([
   "hpnssh.forward.v1",
   "hpnssh.server.v1",
@@ -87,6 +87,10 @@ function validateRoot(value: Record<string, unknown>, node: NodeRow): void {
   if (!isRecord(value.agent)) throw new Error("manifest agent must be an object");
   for (const field of Object.keys(value.agent)) {
     if (!AGENT_FIELDS.has(field)) throw new Error(`manifest agent field ${field} is not allowed`);
+  }
+  const configPoll = value.agent.config_poll_interval_secs;
+  if (configPoll !== undefined && (typeof configPoll !== "number" || !Number.isInteger(configPoll) || configPoll < 5 || configPoll > 3600)) {
+    throw new Error("agent.config_poll_interval_secs must be between 5 and 3600");
   }
   if (!Array.isArray(value.tunnels)) throw new Error("manifest tunnels must be an array");
   for (const tunnel of value.tunnels) validateTunnel(tunnel);

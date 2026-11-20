@@ -4,6 +4,7 @@ import type { Env, RelayDocumentRow } from "./models";
 import { authorizeNode } from "./nodes";
 import { signApiPayload } from "./signing";
 import { nodeById, relayDocumentsForForeignNode } from "./store";
+import { sha256 } from "./validation";
 
 interface RelayEnvelope {
   cluster_id: string;
@@ -22,12 +23,24 @@ export async function handleRelayDocuments(request: Request, env: Env, nodeId: s
 
   try {
     const documents = await relayDocumentsForForeignNode(env, nodeId);
+    const etag = await documentTag(env, documents);
+    if (request.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304, headers: { etag, "cache-control": "no-store" } });
+    }
     const envelopes = await Promise.all(documents.map((document) => issueEnvelope(env, document)));
-    return json({ documents: envelopes });
+    const response = json({ documents: envelopes });
+    response.headers.set("etag", etag);
+    return response;
   } catch (reason) {
     const detail = reason instanceof Error ? reason.message : "relay document issuance failed";
     return error(detail, 503);
   }
+}
+
+async function documentTag(env: Env, documents: RelayDocumentRow[]): Promise<string> {
+  const signer = await sha256(env.CAPSULE_SIGNING_PRIVATE_KEY ?? "");
+  const revisions = documents.map((row) => [row.cluster_id, row.node_id, row.revision, row.updated_at]);
+  return `"${await sha256(JSON.stringify([1, signer, revisions]))}"`;
 }
 
 async function issueEnvelope(env: Env, document: RelayDocumentRow): Promise<RelayEnvelope> {

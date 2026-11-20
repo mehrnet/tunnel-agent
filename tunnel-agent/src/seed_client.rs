@@ -1,7 +1,8 @@
-use std::{fs::OpenOptions, path::Path};
+use std::{fs::OpenOptions, path::Path, time::Duration};
 
 use reqwest::{StatusCode, blocking::Client, redirect::Policy};
 
+#[derive(Clone)]
 pub(crate) struct SeedSource {
     base: String,
     client: Client,
@@ -9,6 +10,14 @@ pub(crate) struct SeedSource {
 
 impl SeedSource {
     pub(crate) fn new(base: &str) -> Result<Self, String> {
+        Self::build(base, None)
+    }
+
+    pub(crate) fn with_timeout(base: &str, timeout: Duration) -> Result<Self, String> {
+        Self::build(base, Some(timeout))
+    }
+
+    fn build(base: &str, timeout: Option<Duration>) -> Result<Self, String> {
         let url = reqwest::Url::parse(base).map_err(|_| "seed source URL is invalid".to_owned())?;
         if url.scheme() != "http"
             || !matches!(url.host_str(), Some("127.0.0.1") | Some("::1"))
@@ -23,13 +32,29 @@ impl SeedSource {
         let client = Client::builder()
             .redirect(Policy::none())
             // Seed traffic is confined to the explicitly mapped management lane.
-            .no_proxy()
-            .build()
-            .map_err(|error| format!("cannot build seed client: {error}"))?;
+            .no_proxy();
+        let client = if let Some(timeout) = timeout {
+            client.timeout(timeout)
+        } else {
+            client
+        }
+        .build()
+        .map_err(|error| format!("cannot build seed client: {error}"))?;
         Ok(Self {
             base: base.trim_end_matches('/').to_owned(),
             client,
         })
+    }
+
+    pub(crate) fn relay_document(&self, node_id: &str) -> Result<String, String> {
+        if !crate::identity::valid_uuid(node_id) {
+            return Err("relay node id is invalid".to_owned());
+        }
+        let raw = self.get_bytes(
+            &format!("/v1/relay/{node_id}"),
+            crate::seed::MAX_RELAY_DOCUMENT_BYTES,
+        )?;
+        String::from_utf8(raw).map_err(|_| "relay response is not UTF-8".to_owned())
     }
 
     pub(crate) fn get_bytes(&self, path: &str, limit: u64) -> Result<Vec<u8>, String> {

@@ -5,9 +5,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::{identity::valid_uuid, release::write_atomic, seed::write_response, telemetry};
-
-const MAX_DOCUMENT_BYTES: u64 = 16_384;
+use crate::{
+    identity::valid_uuid,
+    release::write_atomic,
+    seed::{MAX_RELAY_DOCUMENT_BYTES, write_response},
+    telemetry,
+};
 
 pub(crate) fn serve_document(
     stream: &mut TcpStream,
@@ -18,8 +21,7 @@ pub(crate) fn serve_document(
         return not_found(stream);
     };
     match fs::read(directory.join(format!("{node_id}.json"))) {
-        Ok(document) if document.len() as u64 <= MAX_DOCUMENT_BYTES => {
-            record_heartbeat(directory, node_id)?;
+        Ok(document) if document.len() as u64 <= MAX_RELAY_DOCUMENT_BYTES => {
             write_response(stream, 200, "application/json", &document)
         }
         _ => not_found(stream),

@@ -1,7 +1,7 @@
 mod agent;
 mod agent_control;
-mod agent_heartbeat;
 mod agent_lane;
+mod agent_poll;
 mod agent_spec;
 mod capsule;
 mod foreign_update;
@@ -13,6 +13,7 @@ mod runtime;
 mod seed;
 mod seed_client;
 mod seed_relay;
+mod seed_server;
 mod telemetry;
 mod tunnel_probes;
 

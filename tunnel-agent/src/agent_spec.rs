@@ -3,6 +3,7 @@ use serde::Deserialize;
 pub use crate::agent_lane::{AgentLane, AgentLanePlan};
 
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 60;
+const DEFAULT_CONFIG_POLL_INTERVAL_SECS: u64 = 5;
 const DEFAULT_MAX_ACTIVE_LANES: u8 = 1;
 const DEFAULT_BUNDLE_POLL_INTERVAL_SECS: u64 = 300;
 const MAX_LANES: usize = 16;
@@ -10,6 +11,8 @@ const MAX_LANES: usize = 16;
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AgentSpec {
+    #[serde(default = "default_config_poll_interval_secs")]
+    pub config_poll_interval_secs: u64,
     #[serde(default = "default_poll_interval_secs")]
     pub poll_interval_secs: u64,
     #[serde(default = "default_max_active_lanes")]
@@ -23,6 +26,7 @@ pub struct AgentSpec {
 impl Default for AgentSpec {
     fn default() -> Self {
         Self {
+            config_poll_interval_secs: default_config_poll_interval_secs(),
             poll_interval_secs: default_poll_interval_secs(),
             max_active_lanes: default_max_active_lanes(),
             lanes: Vec::new(),
@@ -43,6 +47,10 @@ pub struct BundleSeed {
 impl AgentSpec {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
+    }
+
+    pub fn lanes_changed(&self, other: &Self) -> bool {
+        self.max_active_lanes != other.max_active_lanes || self.lanes != other.lanes
     }
 }
 
@@ -99,6 +107,9 @@ pub struct AgentListener {
 }
 
 pub fn validate(spec: &AgentSpec) -> Result<(), String> {
+    if !(5..=3_600).contains(&spec.config_poll_interval_secs) {
+        return Err("agent.config_poll_interval_secs must be between 5 and 3600".to_owned());
+    }
     if !(5..=3_600).contains(&spec.poll_interval_secs) {
         return Err("agent.poll_interval_secs must be between 5 and 3600".to_owned());
     }
@@ -177,6 +188,10 @@ pub fn selected_lanes(spec: &AgentSpec) -> Vec<AgentLanePlan> {
 
 fn default_poll_interval_secs() -> u64 {
     DEFAULT_POLL_INTERVAL_SECS
+}
+
+fn default_config_poll_interval_secs() -> u64 {
+    DEFAULT_CONFIG_POLL_INTERVAL_SECS
 }
 
 fn default_max_active_lanes() -> u8 {
