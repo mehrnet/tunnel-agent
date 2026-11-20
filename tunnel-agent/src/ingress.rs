@@ -84,7 +84,7 @@ pub(crate) fn valid(routes: &[PublicPort]) -> Result<(), String> {
     Ok(())
 }
 
-fn valid_tls_name(name: &str) -> bool {
+pub(crate) fn valid_tls_name(name: &str) -> bool {
     name.contains('.')
         && name.bytes().any(|byte| byte.is_ascii_alphabetic())
         && crate::managed_reverse::valid_host(name)

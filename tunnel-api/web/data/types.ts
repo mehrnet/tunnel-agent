@@ -55,12 +55,35 @@ export interface ClusterSummary {
   release_track?: "stable" | "testing";
 }
 
+export interface ProbeJob {
+  id: string;
+  node_id: string;
+  lane_id: string;
+  starts_at: number;
+  ends_at: number;
+  reported_at: number | null;
+  cancelled_at: number | null;
+  target: { hostname: string; path: string; expected_status: number; download: boolean };
+  report: {
+    sequence: number;
+    passed: number;
+    failed: number;
+    longest_streak: number;
+    latency_total_ms: number;
+    latency_max_ms: number;
+    bytes: number;
+    download_ms: number;
+    last_error: string | null;
+  } | null;
+}
+
 export interface ClusterResponse {
   generated_at: number;
   cluster: ClusterSummary;
   nodes: ClusterNode[];
   lanes: TunnelLane[];
   document_revisions?: Record<string, number>;
+  probe_jobs?: ProbeJob[];
   public_ingress?: Array<{
     node_id: string;
     port: number;

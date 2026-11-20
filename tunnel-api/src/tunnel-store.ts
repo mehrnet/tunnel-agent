@@ -102,6 +102,13 @@ async function reservePorts(env: Env, intent: Intent) {
   if (found) throw new Error("Listener or control port already reserved");
 }
 
+async function requireUnprobedLane(env: Env, id: string) {
+  const active = await env.DB.prepare(
+    "SELECT 1 FROM probe_jobs WHERE lane_id=? AND ends_at>? AND cancelled_at IS NULL LIMIT 1",
+  ).bind(id, now()).first();
+  if (active) throw new Error("Cancel the running probe job before changing this lane");
+}
+
 function pairWrite(env: Env, intent: Intent, source: Endpoint, listener: Endpoint, documents: [Manifest, Manifest], time: number, creating: boolean) {
   const encoded = documents.map((doc) => JSON.stringify(doc));
   if (encoded.some((doc) => new TextEncoder().encode(doc).byteLength > MAX_MANIFEST_BYTES)) {
@@ -143,6 +150,7 @@ export async function reconcileTunnel(env: Env, intent: Intent, operation: "crea
   if (operation !== "create" && listenerDoc.public_ingress?.some(
     (route) => route.lane_id === intent.id || route.fallback_lane_id === intent.id,
   )) throw new Error("Remove this lane from public ingress before changing it");
+  if (operation !== "create") await requireUnprobedLane(env, intent.id);
   if (operation !== "remove") {
     await reservePorts(env, intent);
     checkPorts(listenerDoc, intent);

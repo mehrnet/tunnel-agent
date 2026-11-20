@@ -6,6 +6,7 @@ const { join } = require("node:path");
 const { getPlatformProxy } = require("wrangler");
 const { build } = require("esbuild");
 const { verifyIngress } = require("./ingress-owner.cjs");
+const { verifyProbes } = require("./probe-owner.cjs");
 
 const bot = "integration-test-token";
 
@@ -273,5 +274,6 @@ test("worker creates and controls a paired lane without exposing its capability"
     assert((await docs()).results.every(row=>JSON.parse(row.manifest_json).tunnels.length===0));
     await verifyManagedTransports(worker, env, call, path, config, docs);
     await verifyIngress({ env, call, path, config, report: (keys) => recordTransportKeys(worker, env, listener, keys), keys: keyFixture(1) });
+    await verifyProbes({ worker, env, call, path, config, cluster: cluster.id });
   } finally { await platform.dispose(); }
 });

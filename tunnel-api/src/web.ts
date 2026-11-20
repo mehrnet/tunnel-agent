@@ -1,6 +1,7 @@
 import { error, json } from "./http";
 import { presentIngress } from "./ingress-store";
 import type { Env } from "./models";
+import { listProbes } from "./probe-store";
 import { observatoryLanes } from "./observatory-lanes";
 import { observatoryDocuments, observatoryLaneMetrics, observatoryNodes } from "./observatory-store";
 import { clusterById, clustersForOwner, createClusterForOwner } from "./store";
@@ -27,9 +28,9 @@ export async function handleWebCluster(request: Request, env: Env, clusterId: st
   if (!owner) return error("Telegram authorization required", 401);
   const cluster = await clusterById(env, owner.id, clusterId);
   if (!cluster) return error("cluster not found", 404);
-  const [nodes, documents, metrics, managed] = await Promise.all([
+  const [nodes, documents, metrics, managed, probeJobs] = await Promise.all([
     observatoryNodes(env, owner.id, cluster.id), observatoryDocuments(env, cluster.id), observatoryLaneMetrics(env, cluster.id),
-    managedLanes(env, cluster.id),
+    managedLanes(env, cluster.id), listProbes(env, cluster.id),
   ]);
   const timestamp = now();
   const map = observatoryLanes(documents, metrics, timestamp);
@@ -39,6 +40,7 @@ export async function handleWebCluster(request: Request, env: Env, clusterId: st
     nodes: nodes.map((node) => toNode(node, map.expiresAt(node.last_heartbeat_at, node.id, node.heartbeat_reporter_id))),
     document_revisions: Object.fromEntries(documents.map(({node_id,revision}) => [node_id, revision])),
     public_ingress: presentIngress(documents, cluster.id),
+    probe_jobs: probeJobs,
     lanes: await map.lanes(nodes, managed),
   });
 }

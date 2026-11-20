@@ -32,6 +32,12 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
         }
         crate::ingress::valid(ingress)?;
     }
+    if let Some(job) = &config.probe_job {
+        if config.version != 3 {
+            return Err("probe jobs require version 3".to_owned());
+        }
+        job.validate()?;
+    }
     validate_tunnels(config)
 }
 

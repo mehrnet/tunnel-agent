@@ -6,6 +6,7 @@ import { StatIcon } from "./StatIcon";
 import { BootstrapField } from "./BootstrapField";
 import { TunnelControls } from "./TunnelEditor";
 import { PublicIngress } from "./PublicIngress";
+import { ProbePanel } from "./ProbePanel";
 
 interface InspectorPanelProps {
   cluster: ClusterResponse;
@@ -100,7 +101,8 @@ export function InspectorPanel(props: InspectorPanelProps) {
         <Show when={props.initData && node().status === "enrolled"}><PublicIngress node={node()} cluster={props.cluster} initData={props.initData} refresh={props.refresh} /></Show>
       </>}</Show>}>
         {(lane) => <><LaneInspection lane={lane()} nodes={props.cluster.nodes} />
-          <TunnelControls lane={lane()} clusterId={props.cluster.cluster.id} initData={props.initData} saved={props.refresh} /></>}
+          <TunnelControls lane={lane()} clusterId={props.cluster.cluster.id} initData={props.initData} saved={props.refresh} />
+          <ProbePanel lane={lane()} cluster={props.cluster} initData={props.initData} refresh={props.refresh} /></>}
       </Show>
     </section>
   );

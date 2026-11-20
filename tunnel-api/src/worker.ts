@@ -15,14 +15,16 @@ import { webSessionCookie } from "./web-auth";
 import { handleWebNode } from "./web-nodes";
 import { handleWebTunnel } from "./web-tunnels";
 import { handleWebIngress } from "./web-ingress";
+import { handleWebProbes } from "./web-probes";
 import { handleNodeLifecycle } from "./lifecycle";
 
 function clusterAction(request: Request, env: Env, pathname: string) {
-  const path = pathname.match(/^\/api\/v1\/web\/clusters\/([0-9a-f-]{36})\/(release-track|public-ingress|tunnels)(?:\/([0-9a-f-]{36}))?$/);
+  const path = pathname.match(/^\/api\/v1\/web\/clusters\/([0-9a-f-]{36})\/(release-track|public-ingress|probes|tunnels)(?:\/([0-9a-f-]{36}))?$/);
   if (!path) return null;
   const [, cluster, action, lane] = path;
   if (action === "tunnels") return handleWebTunnel(request, env, cluster, lane);
   if (lane) return null;
+  if (action === "probes") return handleWebProbes(request, env, cluster);
   return action === "release-track" ? handleReleaseTrack(request, env, cluster) : handleWebIngress(request, env, cluster);
 }
 

@@ -24,6 +24,8 @@ pub struct Config {
     #[serde(default)]
     pub(crate) public_ingress: Option<Vec<crate::ingress::PublicPort>>,
     #[serde(default)]
+    pub(crate) probe_job: Option<crate::probe_job::Job>,
+    #[serde(default)]
     pub agent: AgentSpec,
 }
 

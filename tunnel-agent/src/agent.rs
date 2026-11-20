@@ -313,7 +313,10 @@ async fn start_agent_plan(
         true
     });
     let running = start_plan(manifest::compile(&boot, &settings.state_dir)?).await?;
-    Ok((running, agent_poll::reporter(keys)))
+    Ok((
+        running,
+        agent_poll::reporter(keys, settings.state_dir.clone()),
+    ))
 }
 
 fn report_domestic_telemetry(

@@ -38,6 +38,7 @@ fn accepts_a_legacy_manifest() {
         tunnels: vec![],
         agent: AgentSpec::default(),
         public_ingress: None,
+        probe_job: None,
     };
     assert!(validate_config(&config).is_ok());
 }
@@ -53,6 +54,7 @@ fn rejects_duplicate_process_ids() {
         tunnels: vec![],
         agent: AgentSpec::default(),
         public_ingress: None,
+        probe_job: None,
     };
     assert!(validate_config(&config).is_err());
 }
@@ -97,6 +99,7 @@ fn compiles_a_rathole_server_contract() {
         })],
         agent: AgentSpec::default(),
         public_ingress: None,
+        probe_job: None,
     };
     let plan = compile(&config, Path::new("/var/lib/tunnel-agent")).expect("valid rathole plan");
     assert_eq!(plan.processes[0].argv[1], "--server");
@@ -138,6 +141,7 @@ fn rejects_listener_collisions_between_contracts() {
         tunnels: vec![server("one"), server("two")],
         agent: AgentSpec::default(),
         public_ingress: None,
+        probe_job: None,
     };
     assert!(compile(&config, Path::new("/state")).is_err());
 }
@@ -177,6 +181,7 @@ fn rejects_a_socks_target() {
         tunnels: vec![TunnelSpec::HpnSshForward(spec)],
         agent: AgentSpec::default(),
         public_ingress: None,
+        probe_job: None,
     };
     assert!(validate_config(&config).is_err());
 }

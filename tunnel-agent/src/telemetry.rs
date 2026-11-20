@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     fs,
     net::{SocketAddr, TcpStream, ToSocketAddrs},
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -31,6 +31,12 @@ pub(crate) struct TelemetryReport {
     pub(crate) lanes: Vec<LaneTelemetry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) transport_keys: Option<TransportKeys>,
+    #[serde(default)]
+    pub(crate) probe_jobs: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) probe: Option<crate::probe_job::Progress>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) probe_job_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -61,6 +67,7 @@ pub(crate) enum LaneState {
 pub(crate) struct Reporter {
     previous: Option<HostCounters>,
     transport_keys: TransportKeys,
+    state: PathBuf,
 }
 
 #[derive(Clone, Copy)]
@@ -83,10 +90,11 @@ struct NetworkCounters {
 }
 
 impl Reporter {
-    pub(crate) fn new(transport_keys: TransportKeys) -> Self {
+    pub(crate) fn new(transport_keys: TransportKeys, state: PathBuf) -> Self {
         Self {
             previous: None,
             transport_keys,
+            state,
         }
     }
 
@@ -123,6 +131,9 @@ impl Reporter {
             },
             lanes: observed_lanes(config),
             transport_keys: Some(self.transport_keys.clone()),
+            probe_jobs: true,
+            probe: crate::probe_job::report(&self.state, config.probe_job.as_ref()),
+            probe_job_id: config.probe_job.as_ref().map(|job| job.id.clone()),
         }))
     }
 }
@@ -471,25 +482,6 @@ fn read_sent_reports(path: &Path) -> Result<HashMap<String, u64>, String> {
     }
 }
 
-fn valid_report(report: &TelemetryReport) -> bool {
-    report.sampled_at > 0
-        && report.host.cpu_milli_percent <= 100_000
-        && report.host.memory_milli_percent <= 100_000
-        && report.host.rx_bytes_per_sec <= MAX_RATE
-        && report.host.tx_bytes_per_sec <= MAX_RATE
-        && report.transport_keys.as_ref().is_none_or(|keys| {
-            keys.hpnssh
-                .as_deref()
-                .is_none_or(crate::transport_identity::valid_ssh_key)
-                && keys
-                    .rathole
-                    .as_deref()
-                    .is_none_or(crate::transport_identity::valid_noise_key)
-        })
-        && report.lanes.len() <= MAX_LANES
-        && report.lanes.iter().all(|lane| {
-            !lane.id.is_empty()
-                && lane.id.len() <= 128
-                && lane.id.bytes().all(|byte| byte.is_ascii_alphanumeric())
-        })
-}
+#[path = "telemetry_validate.rs"]
+mod validation;
+use validation::valid_report;

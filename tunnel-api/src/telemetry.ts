@@ -3,6 +3,7 @@ import type { Env } from "./models";
 import { authorizeNode } from "./nodes";
 import { foreignCanObserveDomestic } from "./heartbeats-store";
 import { nodeById } from "./store";
+import { parseProbe, PROBE_ID, type ProbeProgress } from "./probe-report";
 import { recordTelemetry } from "./telemetry-store";
 import { parseTransportKeys, type TransportKeys } from "./transport-keys";
 import { now } from "./validation";
@@ -28,6 +29,9 @@ export interface TelemetryReport {
   };
   lanes: Array<{ id: string; state: LaneState; probeMs: number | null }>;
   transportKeys: TransportKeys | null;
+  probeJobs: boolean;
+  probe: ProbeProgress | null;
+  probeJobId: string | null;
 }
 
 export async function handleTelemetry(request: Request, env: Env, nodeId: string): Promise<Response> {
@@ -79,6 +83,11 @@ function parseTelemetry(body: Record<string, unknown> | null): TelemetryReport |
   if (!lanes) return null;
   const transportKeys = parseTransportKeys(body?.transport_keys);
   if (body?.transport_keys !== undefined && !transportKeys) return null;
+  const probe = parseProbe(body?.probe);
+  if (body?.probe !== undefined && !probe) return null;
+  const probeJobId = body?.probe_job_id ?? null;
+  if (probeJobId !== null && (typeof probeJobId !== "string" || !PROBE_ID.test(probeJobId))) return null;
+  if (probe && probe.id !== probeJobId) return null;
   return {
     sampledAt: body.sampled_at as number,
     host: {
@@ -89,7 +98,7 @@ function parseTelemetry(body: Record<string, unknown> | null): TelemetryReport |
       txBytesPerSec: host.tx_bytes_per_sec as number,
       agentRssBytes: host.agent_rss_bytes as number,
     },
-    lanes, transportKeys,
+    lanes, transportKeys, probe, probeJobId, probeJobs: body?.probe_jobs === true,
   };
 }
 

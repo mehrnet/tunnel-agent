@@ -168,8 +168,8 @@ impl OnlineApi {
 
 pub(crate) type Reporter = Arc<Mutex<telemetry::Reporter>>;
 
-pub(crate) fn reporter(keys: crate::transport_identity::TransportKeys) -> Reporter {
-    Arc::new(Mutex::new(telemetry::Reporter::new(keys)))
+pub(crate) fn reporter(keys: crate::transport_identity::TransportKeys, state: PathBuf) -> Reporter {
+    Arc::new(Mutex::new(telemetry::Reporter::new(keys, state)))
 }
 
 pub(crate) fn sample(

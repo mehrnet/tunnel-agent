@@ -177,6 +177,26 @@ firewall rules.
 
 The local listener probe checks reachability, not an application transaction.
 
+## Reliability Probe Jobs
+
+From a managed TCP lane's details, schedule 10 minutes to 24 hours of HTTPS
+checks at 30-second intervals. The listener agent runs one job at a time.
+Domestic nodes receive the job in a signed desired document and return
+progress over the existing management relay; they do not contact the API.
+The API requires fresh capability reports before publishing a job.
+
+Each check connects to that lane's loopback listener, verifies the configured
+TLS hostname, and requires the selected HTTP status. It does not follow
+redirects or use the host's proxy settings. Download mode reads at most
+64 KiB from an HTTPS file and reports a sample rate including request setup.
+These modes do not authenticate as a VLESS client or measure peak throughput.
+
+Reports include checked, passed, failed, and missed intervals, request timing,
+the longest consecutive failure streak, and the last check's result. Progress
+survives agent restarts. The lane is reserved while the job runs; cancellation
+stops checks when the listener receives the updated document. Jobs never change
+public ingress or switch lanes, even if every check fails.
+
 ## Switching Public Ingress
 
 On a Linux node advertising kernel ingress support, the owner can select an

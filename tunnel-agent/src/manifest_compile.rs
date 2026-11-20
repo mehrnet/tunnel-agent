@@ -65,6 +65,7 @@ fn compile_plan(
         &mut generated_files,
         &mut listeners,
     )?;
+    crate::probe_job::compile(config, state_dir, &mut processes, &mut generated_files)?;
     validate_processes(&processes)?;
     validate_listener_conflicts(&listeners)?;
     Ok(CompiledPlan {

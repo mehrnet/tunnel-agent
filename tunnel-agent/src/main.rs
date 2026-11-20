@@ -10,6 +10,7 @@ mod identity;
 mod ingress;
 mod managed_reverse;
 mod manifest;
+mod probe_job;
 mod relay;
 mod release;
 mod runtime;
@@ -45,6 +46,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum CommandKind {
+    #[command(hide = true)]
+    ProbeJobWorker {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        state: PathBuf,
+    },
     #[command(hide = true)]
     PublicIngressWorker {
         #[arg(long)]
@@ -204,6 +212,11 @@ async fn main() -> ExitCode {
 
 async fn execute(command: CommandKind) -> ExitCode {
     match command {
+        CommandKind::ProbeJobWorker { config, state } => probe_job::run(&config, &state)
+            .map_or_else(
+                |error| failure("probe job worker failed", error),
+                |()| ExitCode::SUCCESS,
+            ),
         CommandKind::PublicIngressWorker { config } => ingress::run(&config).map_or_else(
             |error| failure("public ingress worker failed", error),
             |()| ExitCode::SUCCESS,
