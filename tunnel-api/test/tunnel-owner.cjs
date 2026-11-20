@@ -55,6 +55,7 @@ async function verifyReleaseScope(worker, env, call, cluster, otherCluster, scop
   const track = id => "/clusters/"+id+"/release-track";
   assert.equal((await call(track(cluster),{track:"testing"},102)).status,404);
   assert.equal((await call(track(cluster),{track:"testing"})).status,200);
+  // A legacy per-node override must never take priority over a release track.
   await run("INSERT INTO seed_canary_releases VALUES(?,'amd64','v2-canary',?,?)", scoped, digest, digest);
   const auth = new Map();
   for (const id of [scoped, other]) {
@@ -73,7 +74,7 @@ async function verifyReleaseScope(worker, env, call, cluster, otherCluster, scop
     assert(await crypto.subtle.verify("Ed25519",publicKey,Buffer.from(s,"base64url"),payload));
     assert.equal(JSON.parse(payload).b,version);
   }
-  await gets(scoped, "v2-canary");
+  await gets(scoped, "v1");
   await gets(other, "v1");
   await run("INSERT INTO cluster_nodes VALUES(?,?,'foreign',0)",otherCluster,other);
   await gets(scoped, "v1");
@@ -84,26 +85,33 @@ async function verifyReleaseScope(worker, env, call, cluster, otherCluster, scop
   assert.deepEqual(flags.map(c => c.id),[otherCluster]);
 
   env.BUNDLE_PUBLISH_TOKEN = "release-test-token";
-  const activate = (track, bundles, version = "v0.5.0") => worker.fetch(new Request("https://test.invalid/api/v1/admin/bundles/activate",{
+  const activate = (track, bundles, version = "v0.5.1") => worker.fetch(new Request("https://test.invalid/api/v1/admin/bundles/activate",{
     method:"POST", headers:{authorization:"Bearer "+env.BUNDLE_PUBLISH_TOKEN},
     body:JSON.stringify({track,version,bundles}),
   }), env, {});
-  const bundles = [["amd64","x86_64"],["arm64","aarch64"]].map(([architecture,target])=>({
+  const forVersion = version => [["amd64","x86_64"],["arm64","aarch64"]].map(([architecture,target])=>({
     architecture, sha256:digest, inventory_sha256:digest,
-    public_url:`/bundles/v0.5.0/tunnel-agent-v0.5.0-${target}-unknown-linux-musl.tar.gz.parts`,
+    public_url:`/bundles/${version}/tunnel-agent-${version}-${target}-unknown-linux-musl.tar.gz.parts`,
     domestic_urls:["https://mirror.example/bundle.parts"],
   }));
+  const bundles = forVersion("v0.5.1");
   assert.equal((await activate("stable",bundles)).status,409);
-  assert.equal((await activate("testing",bundles,"v0.5.10")).status,400);
+  for (const version of ["v0.5.10", "v0.5.1-canary.2"]) {
+    assert.equal((await activate("testing",forVersion(version),version)).status,400);
+  }
   assert.equal((await activate("testing",bundles)).status,200);
   await gets(scoped,"v1");
   assert.equal((await call(track(cluster),{track:"testing"})).status,200);
-  await gets(scoped,"v0.5.0");
+  await gets(scoped,"v0.5.1");
   assert.equal((await activate("stable",[{...bundles[0],sha256:"b".repeat(64)},bundles[1]])).status,409);
   assert.equal((await call(track(cluster),{track:"stable"})).status,200);
   await gets(scoped,"v1");
   assert.equal((await activate("stable",bundles)).status,200);
-  await gets(scoped,"v0.5.0");
+  await gets(scoped,"v0.5.1");
+  assert.equal((await activate("testing",forVersion("v0.5.2"),"v0.5.2")).status,200);
+  await gets(scoped,"v0.5.1");
+  assert.equal((await call(track(cluster),{track:"testing"})).status,200);
+  await gets(scoped,"v0.5.2");
 }
 
 test("worker creates and controls a paired lane without exposing its capability", async () => {

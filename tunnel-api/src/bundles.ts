@@ -1,6 +1,6 @@
 import { error, json, message, parseJson } from "./http";
 import type { Architecture, BundleActivation, BundleActivationEntry, BundleRow, Env, NodeClass } from "./models";
-import { isTestingNode, trackedBundle } from "./release-tracks";
+import { trackedBundle } from "./release-tracks";
 import { nodeById, requireGrant } from "./store";
 import { authorizeNode } from "./nodes";
 import { base64Url } from "./encoding";
@@ -171,7 +171,7 @@ export async function handleBundleActivation(request: Request, env: Env): Promis
       ),
     );
   }
-  statements.push(env.DB.prepare("DELETE FROM seed_canary_releases"));
+  if (activation.track === "testing") statements.push(env.DB.prepare("DELETE FROM seed_canary_releases"));
   statements.push(env.DB.prepare(
     `INSERT INTO audit_events (id, owner_id, node_id, cluster_id, action, detail_json, created_at)
      VALUES (?, NULL, NULL, NULL, ?, ?, ?)`,
@@ -196,7 +196,7 @@ export async function handleBundleRelease(request: Request, env: Env, nodeId: st
   const architecture = new URL(request.url).searchParams.get("architecture") ?? undefined;
   if (!validArchitecture(architecture)) return error("invalid architecture", 400);
 
-  const bundle = await seedRelease(env, nodeId, architecture);
+  const bundle = await trackedBundle(env, nodeId, architecture);
   if (!bundle || !BUNDLE_VERSION.test(bundle.version) || !HEX_64.test(bundle.sha256) ||
     !bundle.inventory_sha256 || !HEX_64.test(bundle.inventory_sha256)) {
     return error(`no seedable ${architecture} tunnel-agent bundle`, 503);
@@ -218,13 +218,4 @@ export async function handleBundleRelease(request: Request, env: Env, nodeId: st
   } catch (reason) {
     return error(reason instanceof Error ? reason.message : "release signing failed", 503);
   }
-}
-
-async function seedRelease(env: Env, nodeId: string, architecture: Architecture) {
-  const release = await trackedBundle(env, nodeId, architecture);
-  if (!await isTestingNode(env, nodeId)) return release;
-  const canary = await env.DB.prepare(
-    "SELECT architecture,version,sha256,inventory_sha256 FROM seed_canary_releases WHERE node_id=? AND architecture=?",
-  ).bind(nodeId, architecture).first<Pick<BundleRow, "architecture" | "version" | "sha256" | "inventory_sha256">>();
-  return canary ?? release;
 }

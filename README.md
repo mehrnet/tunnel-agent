@@ -246,10 +246,13 @@ npm install
 npm run check
 ```
 
-Tags matching `v*` build musl `amd64` and `arm64` bundles in GitHub Actions.
+Normal tags such as `v0.5.1` build musl `amd64` and `arm64` bundles in GitHub
+Actions. GitHub marks the new release Latest; only the Worker controls which
+version managed nodes install.
 Use `tools/publish.sh` to split a release into immutable chunks, publish them
-to `tunnel-files.mehrnet.com`, and activate the matching bundle metadata
-through `tunnel-api.mehrnet.com`.
+to `tunnel-files.mehrnet.com`, and point the testing cluster at that version.
+After live tests pass, explicitly promote the same version to stable without
+rebuilding or retagging it.
 
 The complete Cloudflare, bundle mirror, Telegram, and W4R canary sequence is in
 [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md).

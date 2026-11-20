@@ -46,9 +46,24 @@ and Telegram webhook have been verified.
 
 ## 2. Publish a bundle and its mirrors
 
-Every tag matching `v*` produces two release archives and an artifact named
-`tunnel-agent-static-assets-vX.Y.Z`. Download that artifact and deploy its
-contents with Wrangler so the global static site serves:
+A normal tag such as `v0.5.1` produces two immutable GitHub release archives,
+marked Latest without making them stable for managed nodes. Use one patch
+digit (`v0.5.9` is followed by `v0.6.0`). The same files move from testing to
+stable without another build or a `-canary` tag.
+
+Download the GitHub Latest release, then publish it to the testing track:
+
+```sh
+version=$(gh release view --json tagName --jq .tagName)
+download_dir=$(mktemp -d)
+gh release download "$version" --dir "$download_dir"
+BUNDLE_VERSION="$version" BUNDLE_SOURCE_DIR="$download_dir" \
+  BUNDLE_ACTIVATE=true BUNDLE_TRACK=testing ./tools/publish.sh
+```
+
+Export `BUNDLE_PUBLISH_TOKEN` securely before running the publisher. To upload
+files without moving a track, omit `BUNDLE_ACTIVATE=true`. The publisher
+prepares the global static site:
 
 ```text
 /install.sh
@@ -66,16 +81,17 @@ one full immutable versioned `.tar.gz` release archive. A domestic bundle URL
 must identify either form and contain the same final archive SHA-256 as its
 global counterpart.
 
-Use the release activation script rather than hand-writing D1 SQL. It validates
-both generated `.sha256` files, deploys the manifest and chunk assets first,
-and then atomically marks one archive active per architecture:
+Testing rolls out only to the selected testing cluster. Check both nodes run
+the tagged version and verify the signed relay and a real payload end to end.
+Leave stable pinned until those checks pass. When the exact tested files are
+available from domestic mirrors, move the stable pointer explicitly:
 
 ```sh
-BUNDLE_VERSION=vX.Y.Z \
-BUNDLE_SOURCE_DIR=/path/to/downloaded-release \
-BUNDLE_PUBLISH_TOKEN=... \
-DOMESTIC_BUNDLE_BASE_URL=http://dl.mehr-mir.ir/bundles/vX.Y.Z \
-DOMESTIC_BUNDLE_EXTRA_BASE_URLS=https://mehrnat.ir/bundles/vX.Y.Z,https://mahdi-m.ir/bundles/vX.Y.Z \
+BUNDLE_VERSION="$version" \
+BUNDLE_SOURCE_DIR="$download_dir" \
+BUNDLE_ACTIVATE=true BUNDLE_TRACK=stable \
+DOMESTIC_BUNDLE_BASE_URL=http://dl.mehr-mir.ir \
+DOMESTIC_BUNDLE_EXTRA_BASE_URLS=https://mehrnat.ir,https://mahdi-m.ir \
 DOMESTIC_BUNDLE_FORMAT=manifest \
 ./tools/publish.sh
 ```
@@ -83,10 +99,13 @@ DOMESTIC_BUNDLE_FORMAT=manifest \
 `BUNDLE_PUBLISH_TOKEN` is a Worker secret. The publisher deploys static assets
 first, then invokes the narrow `/api/v1/admin/bundles/activate` endpoint. That
 endpoint only accepts the two expected architecture manifest paths for one
-version and switches their D1 rows in one atomic batch; it is not a generic
-database or manifest API.
+version and moves the chosen track for both architectures atomically. Nodes
+outside the testing cluster remain on stable; publishing to testing never
+advances stable. Moving stable requires the same archive and inventory
+checksums previously registered for testing.
 
-Domestic mirror URLs are optional and are returned only to domestic nodes. The
+Domestic mirror URLs are optional for testing existing nodes over a management
+lane, but required for fresh domestic enrollment and stable promotion. The
 installer tries them in the declared order, validates every chunk and the
 reconstructed archive SHA-256, then falls back to the global static-asset URL.
 Set `DOMESTIC_BUNDLE_BASE_URL` for the first mirror and provide up to three

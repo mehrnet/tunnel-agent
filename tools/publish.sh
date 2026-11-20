@@ -18,12 +18,10 @@ if [ "$bundle_activate" = true ]; then
   : "${BUNDLE_PUBLISH_TOKEN:?set BUNDLE_PUBLISH_TOKEN to the Worker activation secret}"
 fi
 
-case "$BUNDLE_VERSION" in
-  ''|*[!0-9A-Za-z._+-]*)
-    echo "invalid BUNDLE_VERSION" >&2
-    exit 2
-    ;;
-esac
+if ! printf '%s\n' "$BUNDLE_VERSION" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.[0-9]$'; then
+  echo "BUNDLE_VERSION must be vMAJOR.MINOR.PATCH with one patch digit" >&2
+  exit 2
+fi
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repository_dir=$(CDPATH='' cd -- "$script_dir/.." && pwd)

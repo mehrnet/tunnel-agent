@@ -23,7 +23,7 @@ export async function handleReleaseTrack(request: Request, env: Env, clusterId: 
   return json({ track });
 }
 
-export async function isTestingNode(env: Env, nodeId: string): Promise<boolean> {
+async function isTestingNode(env: Env, nodeId: string): Promise<boolean> {
   return Boolean(await env.DB.prepare(
     `SELECT 1 FROM owner_testing_clusters t
      JOIN cluster_nodes m ON m.cluster_id=t.cluster_id
