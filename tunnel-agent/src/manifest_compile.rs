@@ -13,9 +13,21 @@ use super::{
 };
 
 pub fn compile(config: &Config, state_dir: &Path) -> Result<CompiledPlan, String> {
+    compile_plan(config, state_dir, false)
+}
+
+pub fn validate_plan(config: &Config, state_dir: &Path) -> Result<CompiledPlan, String> {
+    compile_plan(config, state_dir, true)
+}
+
+fn compile_plan(
+    config: &Config,
+    state_dir: &Path,
+    check_only: bool,
+) -> Result<CompiledPlan, String> {
     validate_config(config)?;
     let artifact_paths = resolve_artifact_paths(config, state_dir)?;
-    let compilation = compile_tunnels(config, state_dir, &artifact_paths)?;
+    let compilation = compile_tunnels(config, state_dir, &artifact_paths, check_only)?;
     let selected = agent_spec::selected_lanes(&config.agent);
     let selected_ids: HashSet<_> = selected
         .iter()

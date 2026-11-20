@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 use serde::Deserialize;
 
 use crate::agent_spec::{AgentLanePlan, AgentSpec};
+use crate::managed_reverse::ManagedReverse;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -136,6 +137,8 @@ fn default_reset_after_secs() -> u64 {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "contract")]
 pub enum TunnelSpec {
+    #[serde(rename = "managed.reverse.v1")]
+    ManagedReverse(ManagedReverse),
     #[serde(rename = "hpnssh.forward.v1")]
     HpnSshForward(HpnSshForward),
     #[serde(rename = "hpnssh.server.v1")]
@@ -153,6 +156,7 @@ pub enum TunnelSpec {
 impl TunnelSpec {
     pub fn id(&self) -> &str {
         match self {
+            Self::ManagedReverse(spec) => &spec.id,
             Self::HpnSshForward(spec) => &spec.id,
             Self::HpnSshServer(spec) => &spec.id,
             Self::WstunnelServer(spec) => &spec.id,
@@ -164,6 +168,7 @@ impl TunnelSpec {
 
     pub(super) fn artifact(&self) -> &str {
         match self {
+            Self::ManagedReverse(spec) => spec.artifact(),
             Self::HpnSshForward(spec) => &spec.artifact,
             Self::HpnSshServer(spec) => &spec.artifact,
             Self::WstunnelServer(spec) => &spec.artifact,
@@ -175,6 +180,7 @@ impl TunnelSpec {
 
     pub(super) fn enabled(&self) -> bool {
         match self {
+            Self::ManagedReverse(spec) => spec.enabled,
             Self::HpnSshForward(spec) => spec.enabled,
             Self::HpnSshServer(spec) => spec.enabled,
             Self::WstunnelServer(spec) => spec.enabled,

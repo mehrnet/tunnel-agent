@@ -10,6 +10,7 @@ function TcpDestination(props: { host?: string | null; port?: number | null }) {
 }
 
 export function NewTunnel(props: { cluster: ClusterResponse; initData: string; close: () => void; saved: () => void }) {
+  const [transport, setTransport] = createSignal("wstunnel");
   const [kind, setKind] = createSignal("tcp");
   const [busy, setBusy] = createSignal(false);
   const [message, setMessage] = createSignal("");
@@ -21,8 +22,9 @@ export function NewTunnel(props: { cluster: ClusterResponse; initData: string; c
     setBusy(true); setMessage("");
     try {
       await postOwner(`/clusters/${props.cluster.cluster.id}/tunnels`, props.initData, {
-        source_node_id: fields.get("source"), listener_node_id: fields.get("listener"), transport: "wstunnel",
+        source_node_id: fields.get("source"), listener_node_id: fields.get("listener"), transport: transport(),
         listener_type: kind(), listener_port: Number(fields.get("listener_port")), control_port: Number(fields.get("control_port")),
+        tls_server_name: fields.get("tls_server_name"),
         destination_host: fields.get("destination_host"), destination_port: Number(fields.get("destination_port")),
       });
       props.saved();
@@ -34,12 +36,29 @@ export function NewTunnel(props: { cluster: ClusterResponse; initData: string; c
       <h2>New reverse tunnel</h2>
       <label>Connector <select name="source" required><option value="">Select server</option><For each={nodes()}>{(node) => <option value={node.id}>{node.name}</option>}</For></select></label>
       <label>Listening server <select name="listener" required><option value="">Select server</option><For each={nodes()}>{(node) => <option value={node.id}>{node.name}</option>}</For></select></label>
-      <label>Transport <select aria-label="Transport"><option>wstunnel (TLS)</option></select></label>
-      <label>Loopback listener type <select value={kind()} onChange={(event) => setKind(event.currentTarget.value)}><option value="tcp">TCP</option><option value="socks5">SOCKS5</option></select></label>
+      <label>Transport <select value={transport()} onChange={(event) => {
+        const selected = event.currentTarget.value;
+        setTransport(selected);
+        if (selected === "rathole") setKind("tcp");
+      }}>
+        <option value="wstunnel">WSTunnel (TLS)</option>
+        <option value="hpnssh">HPNSSH</option>
+        <option value="rathole">Rathole (Noise)</option>
+      </select></label>
+      <label>Loopback listener type <select value={kind()} onChange={(event) => setKind(event.currentTarget.value)}>
+        <option value="tcp">TCP</option>
+        <Show when={transport() !== "rathole"}><option value="socks5">SOCKS5</option></Show>
+      </select></label>
       <label>Loopback port <input name="listener_port" type="number" min="1024" max="65535" required /></label>
-      <label>TLS control port <input name="control_port" type="number" min="1024" max="65535" required /></label>
+      <label>Control port <input name="control_port" type="number" min="1024" max="65535" required /></label>
+      <Show when={transport() === "wstunnel"}>
+        <label>TLS server name <input name="tls_server_name" placeholder="Required when dialing an IP address" maxlength="253" /></label>
+      </Show>
       <Show when={kind() === "tcp"}><TcpDestination /></Show>
-      <p>Saved disabled. Before enabling, install the listener's TLS certificate and key and restrict the control port to the connector.</p>
+      <p>{transport() === "wstunnel"
+        ? "Saved disabled. Before enabling, install the listener's TLS certificate and key."
+        : "Saved disabled. Both nodes must report their transport identity before you can enable the lane."}
+        {" The connector must be able to reach the listening server's control port."}</p>
       <Show when={message()}><p role="alert">{message()}</p></Show>
       <button type="submit" disabled={busy()}>Save disabled lane</button>
     </form>
@@ -61,7 +80,8 @@ export function TunnelControls(props: { clusterId: string; lane: TunnelLane; ini
   }
   return <Show when={props.lane.managed}>{(lane) => <fieldset disabled={busy()}>
     <legend>Lane controls</legend>
-    <p>Desired state: {lane().enabled ? "Enabled" : "Disabled"} · TLS control port {lane().control_port}</p>
+    <p>Desired state: {lane().enabled ? "Enabled" : "Disabled"} · Control port {lane().control_port}</p>
+    <Show when={lane().tls_server_name}>{(name) => <p>TLS server name: {name()}</p>}</Show>
     <button type="button" onClick={() => void apply(lane().enabled ? "disable" : "enable")}>{lane().enabled ? "Disable" : "Enable"}</button>
     <Show when={lane().enabled} fallback={<button type="button" onClick={() => void apply("remove")}>Remove disabled lane</button>}>
       <button type="button" onClick={() => void apply("restart")}>Restart lane</button>

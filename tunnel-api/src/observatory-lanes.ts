@@ -120,7 +120,8 @@ function mergeManagementEnds(snapshots: Snapshot[]) {
 
 function managedEdge(lane: ManagedLane) {
   return {
-    observedNode: lane.listener_node_id, contract: `owned-${lane.id}`, updatedAt: lane.updated_at, scope: "local_control" as const,
+    observedNode: lane.listener_node_id, contract: `owned-${lane.id}`, updatedAt: lane.updated_at,
+    scope: lane.transport === "wstunnel" ? "local_control" as const : "local_listener" as const,
     edge: {
       id: lane.id, kind: "tunnel", transport: lane.transport, direction: lane.direction, priority: null,
       selected: lane.enabled === 1, source_node_id: lane.source_node_id, peer_node_id: lane.listener_node_id,

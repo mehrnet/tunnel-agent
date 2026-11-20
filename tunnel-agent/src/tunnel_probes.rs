@@ -6,6 +6,7 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use crate::{
+    managed_reverse::ManagedRole,
     manifest::{Config, HpnDirection, Listener, TunnelSpec},
     telemetry::{LaneTelemetry, probe_tcp},
 };
@@ -13,6 +14,11 @@ use crate::{
 pub(crate) fn local_probes(config: &Config) -> impl Iterator<Item = LaneTelemetry> + '_ {
     config.tunnels.iter().filter_map(|tunnel| {
         let listener = match tunnel {
+            TunnelSpec::ManagedReverse(spec)
+                if spec.enabled && spec.role == ManagedRole::Server =>
+            {
+                &spec.listener
+            }
             TunnelSpec::WstunnelServer(spec) if spec.enabled => &spec.listener,
             TunnelSpec::HpnSshForward(spec)
                 if spec.enabled && spec.direction == HpnDirection::LocalSocks =>

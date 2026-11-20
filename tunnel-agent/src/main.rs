@@ -5,7 +5,9 @@ mod agent_poll;
 mod agent_spec;
 mod capsule;
 mod foreign_update;
+mod hpn_server_worker;
 mod identity;
+mod managed_reverse;
 mod manifest;
 mod relay;
 mod release;
@@ -15,6 +17,7 @@ mod seed_client;
 mod seed_relay;
 mod seed_server;
 mod telemetry;
+mod transport_identity;
 mod tunnel_probes;
 
 use std::{
@@ -41,6 +44,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum CommandKind {
+    #[command(hide = true)]
+    HpnServerWorker {
+        #[arg(long)]
+        binary: PathBuf,
+        #[arg(long)]
+        config: PathBuf,
+    },
     /// Validate a v1, v2, or pre-bundled v3 tunnel manifest without starting anything.
     Validate {
         #[arg(long, default_value = "/etc/tunnel-agent.json")]
@@ -188,6 +198,12 @@ async fn main() -> ExitCode {
 
 async fn execute(command: CommandKind) -> ExitCode {
     match command {
+        CommandKind::HpnServerWorker { binary, config } => {
+            hpn_server_worker::run(&binary, &config).await.map_or_else(
+                |error| failure("HPNSSH worker failed", error),
+                |()| ExitCode::SUCCESS,
+            )
+        }
         CommandKind::Validate { config, state_dir } => validate_command(&config, &state_dir),
         CommandKind::Plan { config, state_dir } => plan_command(&config, &state_dir),
         CommandKind::Sync {
@@ -253,7 +269,7 @@ async fn execute(command: CommandKind) -> ExitCode {
 
 fn validate_command(config: &Path, state_dir: &Path) -> ExitCode {
     match manifest::load_config(config)
-        .and_then(|config| manifest::compile(&config, state_dir).map(|plan| (config, plan)))
+        .and_then(|config| manifest::validate_plan(&config, state_dir).map(|plan| (config, plan)))
     {
         Ok((config, plan)) => {
             println!(

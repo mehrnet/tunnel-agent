@@ -38,6 +38,35 @@ async function checkRelayCache(worker, env, relay, domestic, secret) {
   return tag;
 }
 
+async function verifyDomesticTransport({ env, owner, relayCall, run, domestic, relay, cluster }) {
+  const makeReport = byte => ({
+    sampled_at: Math.floor(Date.now() / 1000), lanes: [],
+    host: { cpu_milli_percent: 0, memory_milli_percent: 0, load_1_milli: 0, rx_bytes_per_sec: 0, tx_bytes_per_sec: 0, agent_rss_bytes: 0 },
+    transport_keys: { hpnssh: null, rathole: Buffer.alloc(32, byte).toString("base64") },
+  });
+  const foreignReport = await relayCall(relay, "/telemetry", makeReport(1));
+  assert.equal(foreignReport.status, 200);
+  const relayed = await relayCall(relay, "/relay-telemetry", {reports: [{ node_id: domestic, telemetry: makeReport(2) }]});
+  assert.equal(relayed.status, 200);
+  env.MANAGED_TUNNEL_ACTIVATION = "1";
+  const path = "/clusters/" + cluster.id + "/tunnels";
+  const created = await owner(path, {
+    source_node_id: relay, listener_node_id: domestic, transport: "rathole",
+    listener_type: "tcp", listener_port: 31402, control_port: 31403, destination_host: "127.0.0.1", destination_port: 31401,
+  });
+  assert.equal(created.status, 201);
+  const lane = path + "/" + (await created.json()).id;
+  const enable = () => owner(lane, {action: "enable", revision: 1});
+  assert.equal((await enable()).status, 409);
+  await run("UPDATE node_documents SET manifest_json=json_set(manifest_json,'$.agent.lanes',json(?)) WHERE node_id=?",
+    JSON.stringify([{role:"server", peer:{node_id:relay}}]), domestic);
+  const enabled = await enable();
+  assert.equal(enabled.status, 200, await enabled.text());
+  assert.equal((await owner(lane, {action:"disable", revision:2})).status, 200);
+  assert.equal((await owner(lane, {action:"remove", revision:3})).status, 200);
+  await run("UPDATE node_documents SET manifest_json=json_set(manifest_json,'$.agent.lanes',json('[]')) WHERE node_id=?", domestic);
+}
+
 test("domestic proof is relay-scoped; reinstall, rotation, and retirement invalidate old identities", async () => {
   const platform = await getPlatformProxy({ persist: false });
   try {
@@ -88,6 +117,7 @@ test("domestic proof is relay-scoped; reinstall, rotation, and retirement invali
     assert.equal(competing.filter(reply=>reply.status===200).length,1);
     assert.deepEqual(await snapshot(),{status:"enrolled",public_key:first.public_key});
     assert.equal((await submit(first)).status,401);
+    await verifyDomesticTransport({ env, owner, relayCall, run, domestic, relay, cluster });
     const originalTag = await checkRelayCache(worker, env, relay, domestic, secret);
     await run("UPDATE node_documents SET revision=revision+1 WHERE node_id=?",domestic);
     const updated = await relaySnapshot(worker, env, relay, secret, originalTag);

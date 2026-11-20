@@ -20,6 +20,7 @@ pub(super) fn compile_tunnels(
     config: &super::Config,
     state_dir: &Path,
     artifact_paths: &std::collections::HashMap<String, PathBuf>,
+    check_only: bool,
 ) -> Result<TunnelCompilation, String> {
     let mut compilation = TunnelCompilation {
         processes: config.processes.clone(),
@@ -33,7 +34,14 @@ pub(super) fn compile_tunnels(
         let binary = artifact_paths
             .get(tunnel.artifact())
             .ok_or_else(|| format!("tunnel {:?} references unavailable artifact", tunnel.id()))?;
-        compile_tunnel(tunnel, binary, state_dir, &mut compilation)?;
+        compile_tunnel(
+            tunnel,
+            binary,
+            state_dir,
+            config.bundle.as_ref().map(|bundle| bundle.root.as_path()),
+            &mut compilation,
+            check_only,
+        )?;
     }
     Ok(compilation)
 }
@@ -42,9 +50,19 @@ fn compile_tunnel(
     tunnel: &TunnelSpec,
     binary: &Path,
     state_dir: &Path,
+    bundle_root: Option<&Path>,
     compilation: &mut TunnelCompilation,
+    check_only: bool,
 ) -> Result<(), String> {
     match tunnel {
+        TunnelSpec::ManagedReverse(spec) => {
+            let bundle =
+                bundle_root.ok_or_else(|| "managed lanes require a version 3 bundle".to_owned())?;
+            let plan = spec.compile(binary, bundle, state_dir, check_only)?;
+            compilation.processes.push(plan.process);
+            compilation.generated_files.extend(plan.generated);
+            compilation.listeners.extend(plan.listeners);
+        }
         TunnelSpec::HpnSshForward(spec) => {
             compilation
                 .processes

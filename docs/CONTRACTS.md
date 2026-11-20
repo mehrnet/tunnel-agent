@@ -154,6 +154,31 @@ delivered to agents that predate it. `agent.poll_interval_secs` controls
 heartbeat and telemetry (60 seconds by default), and the domestic bundle poll
 remains at 300 seconds by default.
 
+## Managed Reverse Tunnels
+
+The Telegram owner editor can create WSTunnel, HPNSSH, and Rathole lanes.
+The listening node receives the loopback listener; the connector dials the
+control port and reaches the configured destination. HPNSSH supports fixed
+TCP and SOCKS5. Rathole supports fixed TCP over mutually authenticated Noise.
+
+For HPNSSH and Rathole, the agent generates transport identities locally and
+reports only public keys. The API requires recent keys from both nodes before
+activation and pins the peer identity on each side. The HPNSSH listener uses
+the bundled daemon with a forwarding-only authorization policy. The root
+agent prepares the bundled daemon's unprivileged `hpnsshd` account if needed.
+No per-lane systemd unit, uploaded SSH key, or hand-written config is required.
+
+Managed drafts are reserved without starting a listener. Enabling, disabling,
+restarting, changing the destination, and removing a lane use paired desired
+documents. Port claims cover both the control and loopback ports. Transport
+keys are separate from the management-lane credentials. Nodes also need
+network reachability to the selected control port, including any provider
+firewall rules.
+
+The local listener probe checks reachability, not an application transaction.
+Public ingress mapping and switching a public port between lanes are not
+part of this contract.
+
 ## HPNSSH
 
 `hpnssh.forward.v1` runs an HPNSSH client. `direction` means the SSH forwarding

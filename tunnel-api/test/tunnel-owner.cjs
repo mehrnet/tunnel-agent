@@ -117,6 +117,66 @@ async function verifyReleaseScope(worker, env, call, cluster, otherCluster, scop
   await gets(scoped,"v0.5.2");
 }
 
+function keyFixture(byte) {
+  const raw = Buffer.alloc(32, byte);
+  const prefix = Buffer.from("0000000b7373682d6564323535313900000020", "hex");
+  return { hpnssh: Buffer.concat([prefix, raw]).toString("base64"), rathole: raw.toString("base64") };
+}
+
+async function recordTransportKeys(worker, env, node, transport_keys) {
+  const token = randomUUID();
+  const hash = createHash("sha256").update(token).digest("hex");
+  await env.DB.prepare("UPDATE node_credentials SET secret_hash=? WHERE node_id=?").bind(hash, node).run();
+  const reply = await worker.fetch(new Request(`https://test.invalid/api/v1/nodes/${node}/telemetry`, {
+    method: "POST", headers: { authorization: `Bearer ${node}.${token}` },
+    body: JSON.stringify({
+      sampled_at: Math.floor(Date.now() / 1000) + 1, transport_keys, lanes: [],
+      host: { cpu_milli_percent: 0, memory_milli_percent: 0, load_1_milli: 0, rx_bytes_per_sec: 0, tx_bytes_per_sec: 0, agent_rss_bytes: 0 },
+    }),
+  }), env, {});
+  assert.equal(reply.status, 200, await reply.text());
+}
+
+async function verifyManagedTransports(worker, env, call, path, config, docs) {
+  const listener_key = keyFixture(1);
+  const connector_key = keyFixture(2);
+  const create = transport => call(path + "/tunnels", { ...config, transport, listener_type: "tcp" });
+  assert.equal((await call(path + "/tunnels", { ...config, transport: "rathole", listener_type: "socks5" })).status, 409);
+  for (const transport of ["hpnssh", "rathole"]) {
+    const created = await create(transport);
+    assert.equal(created.status, 201, await created.clone().text());
+    const { id } = await created.json();
+    const lane = path + "/tunnels/" + id;
+    const action = (action, revision) => call(lane, { action, revision });
+    if (transport === "hpnssh") {
+      assert.equal((await action("enable", 1)).status, 409);
+      assert((await docs()).results.every(row => JSON.parse(row.manifest_json).tunnels.length === 0));
+      await recordTransportKeys(worker, env, config.listener_node_id, listener_key);
+      await recordTransportKeys(worker, env, config.source_node_id, connector_key);
+    }
+    const enabled = await action("enable", 1);
+    assert.equal(enabled.status, 200, await enabled.text());
+    const paired = async () => (await docs()).results.map(row => JSON.parse(row.manifest_json).tunnels[0]);
+    const pair = await paired();
+    const server = pair.find(spec => spec.role === "server");
+    const client = pair.find(spec => spec.role === "client");
+    assert.equal(server.contract, "managed.reverse.v1");
+    assert.equal(server.transport, transport);
+    assert.equal(server.peer_key, connector_key[transport]);
+    assert.equal(client.peer_key, listener_key[transport]);
+    assert.equal(client.local_key, connector_key[transport]);
+    assert.deepEqual(client.listener.target, { host: config.destination_host, port: config.destination_port });
+    assert(!server.listener.target);
+    assert.equal(server.generation, client.generation);
+    assert(!JSON.stringify(await (await call(path)).json()).includes(server.generation));
+    assert.equal((await action("restart", 2)).status, 200);
+    assert((await paired()).every(spec => spec.generation !== server.generation));
+    assert.equal((await action("disable", 3)).status, 200);
+    assert((await docs()).results.every(row => JSON.parse(row.manifest_json).tunnels.length === 0));
+    assert.equal((await action("remove", 4)).status, 200);
+  }
+}
+
 test("worker creates and controls a paired lane without exposing its capability", async () => {
   const platform = await getPlatformProxy({ persist: false });
   try {
@@ -134,7 +194,7 @@ test("worker creates and controls a paired lane without exposing its capability"
     const { cluster: otherCluster } = await (await call("/clusters", { name: "other" })).json();
     const path = "/clusters/"+cluster.id;
     async function node(name) {
-      const reply = await call("/nodes", { name, cluster_id: cluster.id, address: "localhost", role: "foreign" });
+      const reply = await call("/nodes", { name, cluster_id: cluster.id, address: "127.0.0.1", role: "foreign" });
       assert.equal(reply.status, 200);
       return (await reply.json()).node.id;
     }
@@ -152,7 +212,9 @@ test("worker creates and controls a paired lane without exposing its capability"
     }
     const type = process.env.TUNNEL_TEST_LISTENER === "socks5" ? "socks5" : "tcp";
     const config = { source_node_id: source, listener_node_id: listener, listener_type:type, transport:"wstunnel",
-      destination_host:"127.0.0.1", destination_port:31401, listener_port:31402, control_port:31403 };
+      destination_host:"127.0.0.1", destination_port:31401, listener_port:31402, control_port:31403, tls_server_name:"localhost" };
+    assert.equal((await call(path+"/tunnels", { ...config, tls_server_name: "" })).status,409);
+    assert.equal((await call(path+"/tunnels", { ...config, tls_server_name: "127.0.0.1" })).status,409);
     assert.equal((await call(path+"/tunnels", config, 102)).status,404);
     const attempts = await Promise.all([call(path+"/tunnels", config), call(path+"/tunnels", config)]);
     assert.deepEqual(attempts.map(r => r.status).sort(),[201,409]);
@@ -177,6 +239,7 @@ test("worker creates and controls a paired lane without exposing its capability"
     const snapshot = await (await call(path)).json();
     assert.equal(snapshot.lanes.length,1);
     assert.equal(snapshot.lanes[0].managed.enabled,true);
+    assert.equal(snapshot.lanes[0].managed.tls_server_name,"localhost");
     assert.equal(snapshot.lanes[0].transport, "wstunnel");
     assert.equal(snapshot.lanes[0].direction, "reverse");
     assert.equal(snapshot.lanes[0].priority, null);
@@ -187,6 +250,8 @@ test("worker creates and controls a paired lane without exposing its capability"
     const changed = (await docs()).results.map(row=>JSON.parse(row.manifest_json));
     const client = changed.find(doc => doc.tunnels[0].endpoint);
     const server = changed.find(doc => doc.tunnels[0].path_prefix);
+    assert.equal(client.tunnels[0].endpoint.url,"wss://127.0.0.1:31403");
+    assert.equal(client.tunnels[0].endpoint.tls_sni,"localhost");
     assert.notEqual(client.tunnels[0].endpoint.path_prefix,key);
     assert.equal(client.tunnels[0].endpoint.path_prefix,server.tunnels[0].path_prefix);
     if (process.env.TUNNEL_TEST_MANIFEST_DIR) {
@@ -205,5 +270,6 @@ test("worker creates and controls a paired lane without exposing its capability"
     assert.equal((await call(lane,{ action:"remove",revision:revision+1 })).status,200);
     await recordPhase("removed");
     assert((await docs()).results.every(row=>JSON.parse(row.manifest_json).tunnels.length===0));
+    await verifyManagedTransports(worker, env, call, path, config, docs);
   } finally { await platform.dispose(); }
 });

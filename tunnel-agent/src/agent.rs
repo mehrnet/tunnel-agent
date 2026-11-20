@@ -124,7 +124,7 @@ async fn reconcile_online(settings: &AgentSettings, mut config: Config) -> Resul
     let report_period = effective_poll_interval(settings, &config)?;
     let api = online_api(settings)?;
     api.prepare(config.clone()).await?;
-    let mut running = start_plan(manifest::compile(&config, &settings.state_dir)?).await?;
+    let (mut running, reporter) = start_agent_plan(settings, &config).await?;
     let mut revision = read_revision(&settings.state_dir.join("document-revision"))?;
     let mut etag = (revision != 0).then(|| format!("\"{revision}\""));
     let mut relay_etag = None;
@@ -135,7 +135,6 @@ async fn reconcile_online(settings: &AgentSettings, mut config: Config) -> Resul
     let mut relayed = PollJob::new();
     let mut reporting = PollJob::new();
     let mut updater = foreign_update::Poller::new();
-    let reporter = agent_poll::reporter();
     let shutdown = runtime::wait_for_shutdown();
     tokio::pin!(shutdown);
 
@@ -220,7 +219,7 @@ async fn apply_online_document(
 async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Result<(), String> {
     let report_period = effective_poll_interval(settings, &config)?;
     let mut relay = relay_client(&config)?;
-    let mut running = start_plan(manifest::compile(&config, &settings.state_dir)?).await?;
+    let (mut running, reporter) = start_agent_plan(settings, &config).await?;
     let mut revision = read_revision(&settings.state_dir.join("document-revision"))?;
     let mut config_poll = polling_interval(config.agent.config_poll_interval_secs);
     let mut updates = polling_interval(offline_poll_interval(&config));
@@ -228,7 +227,6 @@ async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Resu
     let mut desired = PollJob::new();
     let mut updater = PollJob::new();
     let mut reporting = PollJob::new();
-    let reporter = agent_poll::reporter();
     let shutdown = runtime::wait_for_shutdown();
     tokio::pin!(shutdown);
     loop {
@@ -286,6 +284,33 @@ async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Resu
     }
     stop_plan(&mut running).await;
     Ok(())
+}
+
+async fn start_agent_plan(
+    settings: &AgentSettings,
+    config: &Config,
+) -> Result<(runtime::RunningPlan, agent_poll::Reporter), String> {
+    let bundle = config
+        .bundle
+        .as_ref()
+        .ok_or_else(|| "agent manifest has no bundle".to_owned())?;
+    let keys = crate::transport_identity::provision(&bundle.root, &settings.state_dir);
+    let mut boot = config.clone();
+    boot.tunnels.retain(|tunnel| {
+        if let manifest::TunnelSpec::ManagedReverse(lane) = tunnel
+            && lane.enabled
+            && !lane.matches_identity(&keys)
+        {
+            eprintln!(
+                "skipping lane {} until its transport identity is reconciled",
+                lane.id
+            );
+            return false;
+        }
+        true
+    });
+    let running = start_plan(manifest::compile(&boot, &settings.state_dir)?).await?;
+    Ok((running, agent_poll::reporter(keys)))
 }
 
 fn report_domestic_telemetry(

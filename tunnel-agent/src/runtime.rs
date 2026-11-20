@@ -21,25 +21,39 @@ fn spawn_child(spec: &ProcessSpec) -> std::io::Result<Child> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
+        .process_group(0)
         .kill_on_drop(false);
     if let Some(workdir) = &spec.workdir {
         command.current_dir(workdir);
+    }
+    #[cfg(test)]
+    if std::env::var_os("TUNNEL_TEST_WORKER_LOGS").is_some() {
+        command.stderr(Stdio::inherit());
     }
     command.spawn()
 }
 
 async fn stop_child(child: &mut Child, id: &str) {
-    if let Some(pid) = child.id() {
-        // Give protocol binaries time to close control connections before SIGKILL.
-        unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
-    }
+    let pid = child.id();
+    // Forwarding listeners may be held by a protocol worker's forked sessions.
+    signal_worker_group(pid, libc::SIGTERM);
     if timeout(Duration::from_secs(10), child.wait())
         .await
         .is_err()
     {
         eprintln!("process={id} did not exit after SIGTERM; sending SIGKILL");
-        let _ = child.start_kill();
+        signal_worker_group(pid, libc::SIGKILL);
         let _ = child.wait().await;
+    }
+    signal_worker_group(pid, libc::SIGKILL);
+}
+
+fn signal_worker_group(pid: Option<u32>, signal: libc::c_int) {
+    if let Some(group) = pid
+        .and_then(|pid| libc::pid_t::try_from(pid).ok())
+        .filter(|pid| *pid > 0)
+    {
+        unsafe { libc::kill(-group, signal) };
     }
 }
 
@@ -73,9 +87,12 @@ async fn supervise(spec: ProcessSpec, mut shutdown: watch::Receiver<bool>) {
         eprintln!("process={} pid={} started", spec.id, pid);
         let started = Instant::now();
         tokio::select! {
-            status = child.wait() => match status {
-                Ok(status) => eprintln!("process={} pid={} exited status={status}", spec.id, pid),
-                Err(error) => eprintln!("process={} pid={} wait failed: {error}", spec.id, pid),
+            status = child.wait() => {
+                signal_worker_group(Some(pid), libc::SIGKILL);
+                match status {
+                    Ok(status) => eprintln!("process={} pid={} exited status={status}", spec.id, pid),
+                    Err(error) => eprintln!("process={} pid={} wait failed: {error}", spec.id, pid),
+                }
             },
             _ = shutdown.changed() => {
                 stop_child(&mut child, &spec.id).await;
@@ -189,6 +206,20 @@ pub(crate) async fn reconcile_plan(
         }
     }
     stop_processes(previous).await;
+    for path in running
+        .files
+        .keys()
+        .filter(|path| !next_files.contains_key(*path))
+    {
+        if let Err(error) = std::fs::remove_file(path)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            eprintln!(
+                "cannot remove obsolete generated file {}: {error}",
+                path.display()
+            );
+        }
+    }
     for spec in replacements {
         running
             .processes

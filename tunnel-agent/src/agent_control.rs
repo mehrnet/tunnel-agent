@@ -238,9 +238,9 @@ fn cache_relay_documents(directory: &Path, documents: Vec<RelayDocument>) -> Res
             return Err("relay documents response has an invalid entry".to_owned());
         }
         active.insert(document.node_id.clone());
-        release::write_atomic(
+        crate::manifest::write_config_atomic(
             &directory.join(format!("{}.json", document.node_id)),
-            document.envelope.as_bytes(),
+            &document.envelope,
         )?;
     }
     remove_stale_documents(directory, &active)?;

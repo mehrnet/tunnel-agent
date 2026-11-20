@@ -12,7 +12,7 @@ use crate::{
 };
 
 const MAX_DOCUMENT_BYTES: u64 = 16_384;
-pub(crate) const MAX_RELAY_DOCUMENT_BYTES: u64 = 16_384;
+pub(crate) const MAX_RELAY_DOCUMENT_BYTES: u64 = 512 * 1024;
 const MAX_INDEX_BYTES: u64 = 1_048_576;
 pub(crate) use crate::seed_server::serve;
 

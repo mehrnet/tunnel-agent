@@ -21,6 +21,7 @@ pub(super) fn validate_tunnel(
     }
 
     match tunnel {
+        TunnelSpec::ManagedReverse(spec) => spec.validate()?,
         TunnelSpec::HpnSshForward(spec) => validate_hpn_forward(spec)?,
         TunnelSpec::HpnSshServer(spec) => validate_hpn_server(spec)?,
         TunnelSpec::WstunnelServer(spec) => validate_wstunnel_server(spec)?,

@@ -14,7 +14,9 @@ use crate::{
     agent_spec,
     identity::valid_uuid,
     manifest::Config,
-    release, tunnel_probes,
+    release,
+    transport_identity::TransportKeys,
+    tunnel_probes,
 };
 
 const MAX_LANES: usize = 16;
@@ -27,6 +29,8 @@ pub(crate) struct TelemetryReport {
     pub(crate) sampled_at: u64,
     pub(crate) host: HostTelemetry,
     pub(crate) lanes: Vec<LaneTelemetry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) transport_keys: Option<TransportKeys>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -56,6 +60,7 @@ pub(crate) enum LaneState {
 
 pub(crate) struct Reporter {
     previous: Option<HostCounters>,
+    transport_keys: TransportKeys,
 }
 
 #[derive(Clone, Copy)]
@@ -78,8 +83,11 @@ struct NetworkCounters {
 }
 
 impl Reporter {
-    pub(crate) fn new() -> Self {
-        Self { previous: None }
+    pub(crate) fn new(transport_keys: TransportKeys) -> Self {
+        Self {
+            previous: None,
+            transport_keys,
+        }
     }
 
     pub(crate) fn sample(&mut self, config: &Config) -> Result<Option<TelemetryReport>, String> {
@@ -114,6 +122,7 @@ impl Reporter {
                 agent_rss_bytes: agent_rss_bytes()?,
             },
             lanes: observed_lanes(config),
+            transport_keys: Some(self.transport_keys.clone()),
         }))
     }
 }
@@ -468,6 +477,15 @@ fn valid_report(report: &TelemetryReport) -> bool {
         && report.host.memory_milli_percent <= 100_000
         && report.host.rx_bytes_per_sec <= MAX_RATE
         && report.host.tx_bytes_per_sec <= MAX_RATE
+        && report.transport_keys.as_ref().is_none_or(|keys| {
+            keys.hpnssh
+                .as_deref()
+                .is_none_or(crate::transport_identity::valid_ssh_key)
+                && keys
+                    .rathole
+                    .as_deref()
+                    .is_none_or(crate::transport_identity::valid_noise_key)
+        })
         && report.lanes.len() <= MAX_LANES
         && report.lanes.iter().all(|lane| {
             !lane.id.is_empty()

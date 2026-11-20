@@ -4,6 +4,7 @@ import { authorizeNode } from "./nodes";
 import { foreignCanObserveDomestic } from "./heartbeats-store";
 import { nodeById } from "./store";
 import { recordTelemetry } from "./telemetry-store";
+import { parseTransportKeys, type TransportKeys } from "./transport-keys";
 import { now } from "./validation";
 
 const MAX_LANES = 16;
@@ -26,6 +27,7 @@ export interface TelemetryReport {
     agentRssBytes: number;
   };
   lanes: Array<{ id: string; state: LaneState; probeMs: number | null }>;
+  transportKeys: TransportKeys | null;
 }
 
 export async function handleTelemetry(request: Request, env: Env, nodeId: string): Promise<Response> {
@@ -75,6 +77,8 @@ function parseTelemetry(body: Record<string, unknown> | null): TelemetryReport |
   if (fields.some(([value, limit]) => !safeInteger(value, 0, limit))) return null;
   const lanes = parseLanes(body?.lanes);
   if (!lanes) return null;
+  const transportKeys = parseTransportKeys(body?.transport_keys);
+  if (body?.transport_keys !== undefined && !transportKeys) return null;
   return {
     sampledAt: body.sampled_at as number,
     host: {
@@ -85,7 +89,7 @@ function parseTelemetry(body: Record<string, unknown> | null): TelemetryReport |
       txBytesPerSec: host.tx_bytes_per_sec as number,
       agentRssBytes: host.agent_rss_bytes as number,
     },
-    lanes,
+    lanes, transportKeys,
   };
 }
 

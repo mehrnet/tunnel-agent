@@ -43,6 +43,7 @@ export interface TunnelLane {
     revision: number;
     listener_type: "tcp" | "socks5";
     control_port: number;
+    tls_server_name: string | null;
     destination_host: string | null;
     destination_port: number | null;
   };
