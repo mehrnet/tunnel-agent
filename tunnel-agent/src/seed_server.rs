@@ -31,12 +31,19 @@ struct Slot(Arc<AtomicUsize>);
 
 impl Slot {
     fn acquire(count: &Arc<AtomicUsize>, limit: usize) -> Option<Self> {
-        count
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |active| {
-                (active < limit).then_some(active + 1)
-            })
-            .ok()?;
-        Some(Self(count.clone()))
+        let mut active = count.load(Ordering::Relaxed);
+        while active < limit {
+            match count.compare_exchange_weak(
+                active,
+                active + 1,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Some(Self(count.clone())),
+                Err(observed) => active = observed,
+            }
+        }
+        None
     }
 }
 
