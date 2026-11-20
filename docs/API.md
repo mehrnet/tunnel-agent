@@ -66,22 +66,13 @@ wrangler secret put TELEGRAM_WEBHOOK_SECRET
    `https://tunnel-api.mehrnet.com/api/telegram/webhook` with the same
    webhook secret.
 7. Set `BUNDLE_PUBLISH_TOKEN` as a Worker secret. The release publisher uses
-   the scoped activation endpoint to atomically register one active amd64 and
-   arm64 bundle. The installer rejects enrollment until exact release archive
-   hashes and static chunk manifests are registered.
+   the scoped activation endpoint to atomically set the testing or stable
+   pointer for both architectures. The installer rejects enrollment until
+   exact release archive hashes and static chunk manifests are registered.
 
-The scripted release activation verifies both archives, splits them into
-sub-25 MiB static chunks, deploys the manifests and chunks as static assets,
-then activates the matching D1 rows:
-
-```sh
-BUNDLE_VERSION=vX.Y.Z \
-BUNDLE_SOURCE_DIR=/path/to/release \
-BUNDLE_PUBLISH_TOKEN=... \
-DOMESTIC_BUNDLE_BASE_URL=https://iran-mirror.example/tunnel-agent/vX.Y.Z \
-DOMESTIC_BUNDLE_FORMAT=archive \
-./tools/publish.sh
-```
+See [release publishing](BOOTSTRAP.md#2-publish-a-bundle-and-its-mirrors) for
+the GitHub Latest, live testing, and stable promotion sequence. Changing
+GitHub's Latest label does not by itself change a fleet's installed version.
 
 `DOMESTIC_BOOTSTRAP_URL` is an optional Worker secret used only to change the
 installer URL sent to domestic nodes. Point it to an Iranian mirror of this

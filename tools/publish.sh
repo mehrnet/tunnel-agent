@@ -17,11 +17,19 @@ esac
 if [ "$bundle_activate" = true ]; then
   : "${BUNDLE_PUBLISH_TOKEN:?set BUNDLE_PUBLISH_TOKEN to the Worker activation secret}"
 fi
+promote=false
+if [ "$bundle_activate" = true ] && [ "$track" = stable ]; then
+  promote=true
+fi
 
-if ! printf '%s\n' "$BUNDLE_VERSION" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.[0-9]$'; then
+valid_release_version() {
+  case "$1" in ''|*[!v0-9.]*) return 1 ;; esac
+  printf '%s\n' "$1" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.[0-9]$'
+}
+valid_release_version "$BUNDLE_VERSION" || {
   echo "BUNDLE_VERSION must be vMAJOR.MINOR.PATCH with one patch digit" >&2
   exit 2
-fi
+}
 
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repository_dir=$(CDPATH='' cd -- "$script_dir/.." && pwd)
@@ -35,6 +43,7 @@ domestic_format=${DOMESTIC_BUNDLE_FORMAT:-manifest}
 domestic_amd64_url=${DOMESTIC_BUNDLE_URL_AMD64:-}
 domestic_arm64_url=${DOMESTIC_BUNDLE_URL_ARM64:-}
 api_origin=${TUNNEL_API_ORIGIN:-https://tunnel-api.mehrnet.com}
+files_origin=${TUNNEL_FILES_ORIGIN:-https://tunnel-files.mehrnet.com}
 chunk_bytes=${BUNDLE_CHUNK_BYTES:-20971520}
 
 if [ -n "$domestic_extra_bases" ]; then
@@ -165,59 +174,64 @@ domestic_urls_json() {
   printf '[%s]' "$json"
 }
 
-stage_bundle() {
-  architecture=$1
-  target=$2
-  archive="tunnel-agent-$BUNDLE_VERSION-$target.tar.gz"
-  source_archive="$BUNDLE_SOURCE_DIR/$archive"
-  source_checksum="$source_archive.sha256"
-
-  if [ ! -f "$source_archive" ] || [ ! -f "$source_checksum" ]; then
-    echo "missing release archive or checksum: $archive" >&2
-    exit 1
-  fi
-
-  expected=$(awk 'NR == 1 { print $1 }' "$source_checksum")
-  actual=$(sha256_file "$source_archive")
-  if [ "${#expected}" -ne 64 ] || ! printf '%s' "$expected" | grep -Eq '^[0-9a-f]{64}$' || [ "$actual" != "$expected" ]; then
-    echo "checksum verification failed: $archive" >&2
-    exit 1
-  fi
-
-  archive_bytes=$(file_bytes "$source_archive")
-  manifest="$site_bundle_dir/$archive.parts"
-  inventory="$site_bundle_dir/$archive.inventory.json"
-  manifest_tmp=$(mktemp)
-  inventory_tmp=$(mktemp)
-  parts_tmp=$(mktemp -d)
-
-  if ! tar -xOf "$source_archive" tunnel-agent/bundle-index.json > "$inventory_tmp"; then
-    echo "release archive is missing bundle-index.json: $archive" >&2
-    exit 1
-  fi
-  inventory_sha=$(sha256_file "$inventory_tmp")
-  install -D -m 0644 "$inventory_tmp" "$inventory"
-  rm -f "$inventory_tmp"
-
+stage_assets() (
   # Do not publish the archive itself: an ARM64 release is larger than the
   # Cloudflare static-object limit. The installer verifies every chunk and
   # the reconstructed archive against the SHA registered in D1.
-  split -b "$chunk_bytes" -d -a 4 "$source_archive" "$parts_tmp/part-"
+  mkdir -p "$site_bundle_dir"
+  install -m 0644 "$work_dir/inventory" "$site_bundle_dir/$archive.inventory.json"
+  rm -f "$work_dir"/part-*
+  split -b "$chunk_bytes" -d -a 4 "$source_archive" "$work_dir/part-"
   {
     printf '%s\n' 'TUNNEL_AGENT_BUNDLE_PARTS=1'
     printf 'ARCHIVE_SHA256=%s\n' "$actual"
     printf 'ARCHIVE_BYTES=%s\n' "$archive_bytes"
-    for part in "$parts_tmp"/part-*; do
+    for part in "$work_dir"/part-*; do
       part_name="${archive}.part-${part##*-}"
       part_sha=$(sha256_file "$part")
       part_bytes=$(file_bytes "$part")
       install -D -m 0644 "$part" "$site_bundle_dir/$part_name"
       printf 'PART %s %s %s\n' "$part_sha" "$part_bytes" "$part_name"
     done
-  } > "$manifest_tmp"
-  install -D -m 0644 "$manifest_tmp" "$manifest"
-  rm -rf "$parts_tmp"
-  rm -f "$manifest_tmp"
+  } > "$work_dir/parts"
+  install -m 0644 "$work_dir/parts" "$site_bundle_dir/$archive.parts"
+)
+
+verify_published() (
+  url="${files_origin%/}/bundles/$BUNDLE_VERSION/$archive"
+  if ! curl --fail --silent --show-error --max-time 30 "$url.parts" -o "$work_dir/parts" ||
+      ! grep -Fxq "ARCHIVE_SHA256=$actual" "$work_dir/parts" ||
+      ! grep -Fxq "ARCHIVE_BYTES=$archive_bytes" "$work_dir/parts" ||
+      ! curl --fail --silent --show-error --max-time 30 "$url.inventory.json" -o "$work_dir/published" ||
+      ! cmp -s "$work_dir/published" "$work_dir/inventory"; then
+    echo "published artifact metadata does not match: $archive" >&2
+    exit 1
+  fi
+)
+
+prepare_bundle() {
+  architecture=$1
+  target=$2
+  archive="tunnel-agent-$BUNDLE_VERSION-$target.tar.gz"
+  source_archive="$BUNDLE_SOURCE_DIR/$archive"
+  source_checksum="$source_archive.sha256"
+  if [ ! -f "$source_archive" ] || [ ! -f "$source_checksum" ]; then
+    echo "missing release archive or checksum: $archive" >&2
+    exit 1
+  fi
+  expected=$(awk 'NR == 1 { print $1 }' "$source_checksum")
+  actual=$(sha256_file "$source_archive")
+  if [ "${#expected}" -ne 64 ] || ! printf '%s' "$expected" | grep -Eq '^[0-9a-f]{64}$' || [ "$actual" != "$expected" ]; then
+    echo "checksum verification failed: $archive" >&2
+    exit 1
+  fi
+  archive_bytes=$(file_bytes "$source_archive")
+  if ! tar -xOf "$source_archive" tunnel-agent/bundle-index.json > "$work_dir/inventory"; then
+    echo "release archive is missing bundle-index.json: $archive" >&2
+    exit 1
+  fi
+  inventory_sha=$(sha256_file "$work_dir/inventory")
+  if [ "$promote" = true ]; then verify_published; else stage_assets; fi
 
   public_url="/bundles/$BUNDLE_VERSION/$archive.parts"
   domestic_json=$(domestic_urls_json "$architecture" "$archive")
@@ -230,21 +244,21 @@ stage_bundle() {
   bundle_count=$((bundle_count + 1))
 }
 
-payload_file=$(mktemp)
-trap 'rm -f "$payload_file"' EXIT HUP INT TERM
-mkdir -p "$site_bundle_dir"
+work_dir=$(mktemp -d)
+trap 'find "$work_dir" -depth -delete' EXIT
+trap 'exit 1' HUP INT TERM
+payload_file="$work_dir/activation.json"
 
 printf '{"version":"%s","track":"%s","bundles":[\n' "$BUNDLE_VERSION" "$track" > "$payload_file"
 bundle_count=0
-stage_bundle amd64 x86_64-unknown-linux-musl
-stage_bundle arm64 aarch64-unknown-linux-musl
+prepare_bundle amd64 x86_64-unknown-linux-musl
+prepare_bundle arm64 aarch64-unknown-linux-musl
 printf '\n]}\n' >> "$payload_file"
 
-# Static files must exist before their D1 records can be returned to a node.
-(
-  cd "$api_dir"
-  npm exec -- wrangler deploy --config "$files_config" >&2
-)
+if [ "$promote" = false ]; then
+  # Static files must exist before their D1 records can be returned to a node.
+  (cd "$api_dir" && npm exec -- wrangler deploy --config "$files_config" >&2)
+fi
 
 if [ "$bundle_activate" = false ]; then
   cat "$payload_file"
@@ -252,9 +266,9 @@ if [ "$bundle_activate" = false ]; then
   exit 0
 fi
 
-curl --fail-with-body --silent --show-error \
-  --header "authorization: Bearer $BUNDLE_PUBLISH_TOKEN" \
+printf 'authorization: Bearer %s\n' "$BUNDLE_PUBLISH_TOKEN" | curl --fail-with-body --silent --show-error \
+  --header @- \
   --header "content-type: application/json" \
   --data-binary "@$payload_file" \
   "${api_origin%/}/api/v1/admin/bundles/activate"
-echo "published and activated $BUNDLE_VERSION"
+echo "$track now points to $BUNDLE_VERSION"

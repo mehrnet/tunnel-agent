@@ -102,7 +102,8 @@ endpoint only accepts the two expected architecture manifest paths for one
 version and moves the chosen track for both architectures atomically. Nodes
 outside the testing cluster remain on stable; publishing to testing never
 advances stable. Moving stable requires the same archive and inventory
-checksums previously registered for testing.
+checksums previously registered for testing. Stable promotion verifies the
+published manifests and inventories without redeploying the static site.
 
 Domestic mirror URLs are optional for testing existing nodes over a management
 lane, but required for fresh domestic enrollment and stable promotion. The
