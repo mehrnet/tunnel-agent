@@ -141,19 +141,10 @@
 .probe-report__foot { margin-top: 12px; }
 
 .node-popup.lane-editor {
-  position: fixed;
-  inset: 0;
-  width: min(550px, calc(100vw - 24px));
-  max-height: calc(100dvh - max(24px, var(--app-inset-top, 0px)) - max(24px, var(--app-inset-bottom, 0px)));
-  margin: auto;
-  padding: 0;
+  --popup-width: 550px;
   border: 1px solid var(--edge);
   border-radius: 9px;
-  color: var(--text);
-  background: var(--surface);
-  overscroll-behavior: contain;
 }
-.lane-editor::backdrop { background: rgb(12 22 24 / 55%); }
 .lane-editor form { display: grid; gap: 14px; padding: clamp(14px, 4vw, 24px); }
 .lane-editor__title { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .lane-editor__title h2 { margin-top: 4px; font-size: clamp(1.15rem, 4vw, 1.6rem); }

@@ -4,27 +4,35 @@
 .workspace-panel-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; padding: 15px 17px 13px; border-bottom: 1px solid var(--edge); background: var(--surface); }
 .workspace-panel-heading h2 { margin-top: 2px; font: 700 26px/1.03 var(--display); }
 
-.node-popup { width: min(560px, 100%); max-height: 100%; min-height: 0; overflow: auto; overscroll-behavior: contain; color: var(--text); background: var(--surface); box-shadow: var(--shadow); }
-.details-dialog {
-  width: min(560px, calc(100% - max(24px, var(--inset-left) + var(--inset-right))));
-  max-height: calc(var(--app-height, 100dvh) - var(--inset-top) - var(--inset-bottom) - 24px);
-  inset: var(--inset-top) var(--inset-right) var(--inset-bottom) var(--inset-left);
+.node-popup {
+  --popup-viewport-height: min(100dvh, var(--app-height, 100dvh));
+  --popup-space-x: calc(100vw - var(--inset-left) - var(--inset-right) - 24px);
+  --popup-space-y: calc(var(--popup-viewport-height) - var(--inset-top) - var(--inset-bottom) - 24px);
+  position: fixed;
+  inset: calc((var(--popup-viewport-height) + var(--inset-top) - var(--inset-bottom)) / 2)
+    auto auto calc((100vw + var(--inset-left) - var(--inset-right)) / 2);
+  width: min(var(--popup-width, 560px), var(--popup-space-x));
+  max-width: none;
+  max-height: var(--popup-space-y);
+  min-height: 0;
+  margin: 0;
   padding: 0;
   border: 1px solid var(--edge-bright);
   border-radius: 4px;
+  transform: translate(-50%, -50%);
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
-.details-dialog::backdrop { background: var(--scrim); }
-.details-dialog[open] { animation: dialog-enter .15s ease-out; }
+.node-popup::backdrop { background: var(--scrim); }
+.node-popup[open] { animation: dialog-enter .15s ease-out; }
 .workbench[data-view="map"]:has(.topology-panel--vertical) .details-dialog {
-  position: fixed;
-  inset: calc((var(--app-height, 100dvh) + var(--inset-top) - var(--inset-bottom)) / 2)
-    auto auto calc((100vw + var(--inset-left) - var(--inset-right)) / 2);
-  width: min(650px, calc(var(--app-height, 100dvh) - var(--inset-top) - var(--inset-bottom) - 24px));
-  max-width: none;
-  max-height: calc(100vw - var(--inset-left) - var(--inset-right) - 24px);
-  margin: 0;
-  translate: -50% -50%;
-  transform: rotate(90deg);
+  width: min(650px, var(--popup-space-y));
+  max-height: var(--popup-space-x);
+  /* Keep centering independent of individual transform support in WebViews. */
+  transform: translate(-50%, -50%) rotate(90deg);
 }
 @keyframes dialog-enter { from { opacity: 0; } }
 .create-cluster { display: grid; gap: 14px; padding: 24px; border: 1px solid var(--edge); border-radius: 4px; }
