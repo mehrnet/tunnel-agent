@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,6 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tunnel-api/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -37,4 +44,68 @@ jobs:
       - run: npm exec -- wrangler deploy --dry-run --config ../tunnel-files/wrangler.jsonc
         working-directory: tunnel-api
       - run: shellcheck tunnel-files/static/install.sh tools/*.sh
+      - name: Save the tested dashboard build
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunnel-api-web
+          path: tunnel-api/web-dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy-api:
+    name: Deploy tunnel-api
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: tunnel-api-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip commits superseded while CI was running
+        id: head
+        shell: bash
+        run: |
+          sha=$(git ls-remote --exit-code origin refs/heads/main | cut -f1)
+          if [[ "$sha" == "$GITHUB_SHA" ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Skipped: main advanced to $sha"
+          fi
+      - if: steps.head.outputs.deploy == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tunnel-api/package-lock.json
+      - if: steps.head.outputs.deploy == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: tunnel-api-web
+          path: tunnel-api/web-dist
+      - if: steps.head.outputs.deploy == 'true'
+        run: npm ci
+        working-directory: tunnel-api
+      - name: Apply D1 migrations and deploy the tested version
+        if: steps.head.outputs.deploy == 'true'
+        working-directory: tunnel-api
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          : "${CLOUDFLARE_API_TOKEN:?configure the CI Cloudflare deploy token}"
+          npm run db:migrate:remote
+          tag="api-${GITHUB_SHA:0:12}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          npm exec -- wrangler versions upload --keep-vars --tag "$tag"
+          npm exec -- wrangler versions deploy --version-tag "$tag" --yes
+      - name: Verify API and dashboard
+        if: steps.head.outputs.deploy == 'true'
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --retry 4 --retry-all-errors --max-time 15 \
+            https://tunnel-api.mehrnet.com/api/health | jq -e '.ok == true and .service == "tunnel-agent"'
+          curl --fail --silent --show-error --location --retry 4 --retry-all-errors --max-time 15 \
+            https://tunnel-api.mehrnet.com/web/ | cmp tunnel-api/web-dist/index.html -
 

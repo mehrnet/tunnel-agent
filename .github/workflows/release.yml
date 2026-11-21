@@ -13,7 +13,13 @@ env:
   RATHOLE_COMMIT: ebb764ae53d7ffe4fcb45f83f7563bec5c74199d
 
 jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   bundle:
+    needs: verify
     name: bundle-${{ matrix.architecture }}
     runs-on: ${{ matrix.runner }}
     strategy:

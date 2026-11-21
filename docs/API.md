@@ -69,6 +69,17 @@ wrangler secret put TELEGRAM_WEBHOOK_SECRET
    comma-separated Telegram numeric IDs of fleet release operators. If empty,
    release credential issuance and activation are disabled.
 
+After initial setup, push to `main` to deploy. The CI workflow tests the
+repository and builds the dashboard, then uses that build to deploy
+`tunnel-api` and verify the public API and web UI. It applies pending D1
+migrations before moving traffic to the new Worker version. Keep migrations
+compatible with the previous Worker while that version is still serving.
+The `CLOUDFLARE_API_TOKEN` Actions secret needs Workers Scripts Write and D1
+Write for this account, but does not need DNS or zone write access.
+Runtime Worker secrets and operator settings are configured separately and are
+preserved. Manual Wrangler deployment is only needed for initial setup or
+recovery.
+
 Operators create or revoke their personal token from **+ → Release API token**
 in Tunnel Owners. Tokens expire after 30 days, are shown once, and are stored
 as SHA-256 hashes in D1. Rotating a token invalidates the previous one. Use the
