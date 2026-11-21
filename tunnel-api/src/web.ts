@@ -6,7 +6,7 @@ import { observatoryLanes } from "./observatory-lanes";
 import { observatoryDocuments, observatoryLaneMetrics, observatoryNodes } from "./observatory-store";
 import { clusterById, clustersForOwner, createClusterForOwner } from "./store";
 import { ownerFromTelegram } from "./web-auth";
-import { isReleaseOperator } from "./release-auth";
+import { isReleaseOperator, ownerForTunnelRequest } from "./release-auth";
 import { managedLanes } from "./tunnel-store";
 import { now } from "./validation";
 
@@ -25,8 +25,8 @@ export async function handleWebClusters(request: Request, env: Env): Promise<Res
 
 export async function handleWebCluster(request: Request, env: Env, clusterId: string): Promise<Response> {
   if (request.method !== "GET") return error("method not allowed", 405);
-  const owner = await ownerFromTelegram(request, env);
-  if (!owner) return error("Telegram authorization required", 401);
+  const owner = await ownerForTunnelRequest(request, env);
+  if (!owner) return error("Owner authorization required", 401);
   const cluster = await clusterById(env, owner.id, clusterId);
   if (!cluster) return error("cluster not found", 404);
   const [nodes, documents, metrics, managed, probeJobs] = await Promise.all([

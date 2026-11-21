@@ -30,6 +30,7 @@ export function ReleaseTokenDialog(props: { initData: string; close: () => void 
       <button type="button" onClick={() => props.close()}>Close</button>
     </header>
     <p>This token expires after 30 days. Creating a new token revokes your previous one.</p>
+    <p>It can activate fleet releases and manage tunnels in clusters you own.</p>
     <div class="create-cluster__actions">
       <button type="button" disabled={busy()} onClick={() => void change("rotate")}>Create or rotate</button>
       <button type="button" disabled={busy()} onClick={() => void change("revoke")}>Revoke</button>

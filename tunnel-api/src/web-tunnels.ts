@@ -4,12 +4,12 @@ import { clusterById } from "./store";
 import { destination, parseIntent, type Intent } from "./tunnel-spec";
 import { getIntent, reconcileTunnel } from "./tunnel-store";
 import { randomToken } from "./validation";
-import { ownerFromTelegram } from "./web-auth";
+import { ownerForTunnelRequest } from "./release-auth";
 
 export async function handleWebTunnel(request: Request, env: Env, clusterId: string, id?: string): Promise<Response> {
   if (request.method !== "POST") return error("method not allowed", 405);
-  const owner = await ownerFromTelegram(request, env);
-  if (!owner) return error("Telegram authorization required", 401);
+  const owner = await ownerForTunnelRequest(request, env);
+  if (!owner) return error("Owner authorization required", 401);
   if (!await clusterById(env, owner.id, clusterId)) return error("Cluster not found", 404);
   const body = await parseJson(request);
   if (!body) return error("Invalid request body", 400);

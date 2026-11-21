@@ -51,3 +51,7 @@ export async function releaseOperator(request: Request, env: Env): Promise<Owner
   if (!row || !isReleaseOperator(env, row) || !equalSecret(await sha256(token.secret), row.secret_hash)) return null;
   return { id: row.id, telegram_user_id: row.telegram_user_id };
 }
+
+export function ownerForTunnelRequest(request: Request, env: Env): Promise<OwnerRow | null> {
+  return request.headers.has("authorization") ? releaseOperator(request, env) : ownerFromTelegram(request, env);
+}

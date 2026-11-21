@@ -87,6 +87,11 @@ token as a bearer credential for `POST /api/v1/admin/bundles/activate`;
 activation records the operator and sets both architectures atomically.
 Membership in a customer cluster does not grant fleet release access.
 
+The same bearer credential can read `GET /api/v1/web/clusters/:id` and call the
+cluster's `/tunnels` and `/public-ingress` write endpoints. These endpoints
+still check cluster ownership and document revisions. Other owner endpoints
+continue to require Telegram authentication.
+
 See [release publishing](BOOTSTRAP.md#2-publish-a-bundle-and-its-mirrors) for
 the GitHub Latest, live testing, and stable promotion sequence. Changing
 GitHub's Latest label does not by itself change a fleet's installed version.

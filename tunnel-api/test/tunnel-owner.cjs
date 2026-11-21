@@ -88,6 +88,7 @@ async function verifyReleaseScope(worker, env, call, cluster, otherCluster, scop
   assert.deepEqual(flags.map(c => c.id),[otherCluster]);
 
   const releaseToken = await verifyReleaseTokens(worker, env, telegram);
+  await verifyBundleTokenScope(worker, env, call, cluster, releaseToken);
   const activate = (track, bundles, version = "v0.5.1") => worker.fetch(new Request("https://test.invalid/api/v1/admin/bundles/activate",{
     method:"POST", headers:{authorization:"Bearer "+releaseToken},
     body:JSON.stringify({track,version,bundles}),
@@ -120,6 +121,19 @@ async function verifyReleaseScope(worker, env, call, cluster, otherCluster, scop
   await gets(scoped,"v0.5.1");
   assert.equal((await call(track(cluster),{track:"testing"})).status,200);
   await gets(scoped,"v0.5.2");
+}
+
+async function verifyBundleTokenScope(worker, env, call, cluster, releaseToken) {
+  const stranger = await (await call("/clusters", { name: "another owner" }, 102)).json();
+  const bearer = (id, suffix = "", body) => worker.fetch(new Request("https://test.invalid/api/v1/web/clusters/" + id + suffix, {
+    method: body ? "POST" : "GET", headers: { authorization: "Bearer " + releaseToken }, body: body && JSON.stringify(body),
+  }), env, {});
+  assert.equal((await bearer(cluster)).status, 200);
+  assert.equal((await bearer(stranger.cluster.id)).status, 404);
+  assert.equal((await bearer(stranger.cluster.id, "/tunnels", {})).status, 404);
+  assert.equal((await bearer(stranger.cluster.id, "/public-ingress", {})).status, 404);
+  assert.notEqual((await bearer(cluster, "/tunnels", {})).status, 401);
+  assert.notEqual((await bearer(cluster, "/public-ingress", {})).status, 401);
 }
 
 function keyFixture(byte) {
