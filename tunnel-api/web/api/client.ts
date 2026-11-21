@@ -18,9 +18,8 @@ async function readResponse<T>(path: string, initData: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function fetchClusters(initData: string): Promise<ClusterSummary[]> {
-  const payload = await readResponse<{ clusters: ClusterSummary[] }>(`${apiRoot}/clusters`, initData);
-  return payload.clusters;
+export function fetchClusters(initData: string) {
+  return readResponse<{ clusters: ClusterSummary[]; release_operator: boolean }>(`${apiRoot}/clusters`, initData);
 }
 
 export function fetchCluster(id: string, initData: string): Promise<ClusterResponse> {
@@ -37,4 +36,5 @@ export async function postOwner(path: string, initData: string, body: Record<str
     const details = await reply.json().catch(() => null) as { error?: string } | null;
     throw new Error(details?.error ?? `Request failed (HTTP ${reply.status})`);
   }
+  return reply;
 }

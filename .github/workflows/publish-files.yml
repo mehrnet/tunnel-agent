@@ -1,0 +1,73 @@
+name: Publish tunnel files
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing GitHub release tag, such as v0.5.8
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tunnel-files-production
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tunnel-api/package-lock.json
+      - name: Download the immutable GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$BUNDLE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.[0-9]$ ]]
+          gh release download "$BUNDLE_VERSION" --dir "$RUNNER_TEMP/tunnel-release"
+          gh release view "$BUNDLE_VERSION" --json assets --jq \
+            '.assets[] | select(.name | endswith(".tar.gz")) | [.digest, .name] | @tsv' |
+            sed 's/^sha256://;s/\t/  /' > "$RUNNER_TEMP/release-digests"
+          test "$(wc -l < "$RUNNER_TEMP/release-digests")" -eq 2
+          (cd "$RUNNER_TEMP/tunnel-release" && sha256sum -c "$RUNNER_TEMP/release-digests")
+      - run: npm ci
+        working-directory: tunnel-api
+      - run: python3 -B tools/restore-bundle-assets-test.py
+      - name: Preserve previously published bundles
+        env:
+          BUNDLE_VERSION: ${{ inputs.version }}
+        run: |
+          python3 tools/restore-bundle-assets.py https://tunnel-files.mehrnet.com \
+            tunnel-files/static tunnel-files/legacy-bundles.txt "$BUNDLE_VERSION"
+      - name: Publish Cloudflare assets without activating a track
+        env:
+          BUNDLE_VERSION: ${{ inputs.version }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: BUNDLE_SOURCE_DIR="$RUNNER_TEMP/tunnel-release" BUNDLE_ACTIVATE=false ./tools/publish.sh
+      - name: Verify both public chunk manifests
+        shell: bash
+        env:
+          BUNDLE_VERSION: ${{ inputs.version }}
+        run: |
+          for manifest in tunnel-files/static/bundles/"$BUNDLE_VERSION"/*.parts; do
+            curl --fail --silent --show-error --retry 3 --max-time 30 \
+              "https://tunnel-files.mehrnet.com/${manifest#tunnel-files/static/}" | cmp "$manifest" -
+          done

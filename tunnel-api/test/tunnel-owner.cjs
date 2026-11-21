@@ -7,6 +7,7 @@ const { getPlatformProxy } = require("wrangler");
 const { build } = require("esbuild");
 const { verifyIngress, verifyDualIngress } = require("./ingress-owner.cjs");
 const { verifyProbes } = require("./probe-owner.cjs");
+const { verifyReleaseTokens } = require("./release-token-owner.cjs");
 
 const bot = "integration-test-token";
 
@@ -86,9 +87,9 @@ async function verifyReleaseScope(worker, env, call, cluster, otherCluster, scop
   const flags = (await (await call("/clusters")).json()).clusters.filter(c => c.release_track === "testing");
   assert.deepEqual(flags.map(c => c.id),[otherCluster]);
 
-  env.BUNDLE_PUBLISH_TOKEN = "release-test-token";
+  const releaseToken = await verifyReleaseTokens(worker, env, telegram);
   const activate = (track, bundles, version = "v0.5.1") => worker.fetch(new Request("https://test.invalid/api/v1/admin/bundles/activate",{
-    method:"POST", headers:{authorization:"Bearer "+env.BUNDLE_PUBLISH_TOKEN},
+    method:"POST", headers:{authorization:"Bearer "+releaseToken},
     body:JSON.stringify({track,version,bundles}),
   }), env, {});
   const forVersion = version => [["amd64","x86_64"],["arm64","aarch64"]].map(([architecture,target])=>({
@@ -109,6 +110,8 @@ async function verifyReleaseScope(worker, env, call, cluster, otherCluster, scop
   assert.equal((await call(track(cluster),{track:"stable"})).status,200);
   await gets(scoped,"v1");
   assert.equal((await activate("stable",bundles)).status,200);
+  const audit = await env.DB.prepare("SELECT owner_id FROM audit_events WHERE action='bundle.activated'").all();
+  assert(audit.results.every(row => row.owner_id));
   await gets(scoped,"v0.5.1");
   assert.equal((await activate("testing",bundles.map(bundle => ({ ...bundle, domestic_urls: [] })))).status,200);
   const mirrors = await env.DB.prepare("SELECT domestic_url FROM bundle_releases WHERE active=1 AND version='v0.5.1'").all();

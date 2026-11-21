@@ -15,11 +15,7 @@ case "$bundle_activate" in
   *) echo "BUNDLE_ACTIVATE must be true or false" >&2; exit 2 ;;
 esac
 if [ "$bundle_activate" = true ]; then
-  : "${BUNDLE_PUBLISH_TOKEN:?set BUNDLE_PUBLISH_TOKEN to the Worker activation secret}"
-fi
-promote=false
-if [ "$bundle_activate" = true ] && [ "$track" = stable ]; then
-  promote=true
+  : "${TUNNEL_API_TOKEN:?set TUNNEL_API_TOKEN to your release operator API token}"
 fi
 
 valid_release_version() {
@@ -179,7 +175,6 @@ stage_assets() (
   # Cloudflare static-object limit. The installer verifies every chunk and
   # the reconstructed archive against the SHA registered in D1.
   mkdir -p "$site_bundle_dir"
-  install -m 0644 "$work_dir/inventory" "$site_bundle_dir/$archive.inventory.json"
   rm -f "$work_dir"/part-*
   split -b "$chunk_bytes" -d -a 4 "$source_archive" "$work_dir/part-"
   {
@@ -190,10 +185,19 @@ stage_assets() (
       part_name="${archive}.part-${part##*-}"
       part_sha=$(sha256_file "$part")
       part_bytes=$(file_bytes "$part")
-      install -D -m 0644 "$part" "$site_bundle_dir/$part_name"
       printf 'PART %s %s %s\n' "$part_sha" "$part_bytes" "$part_name"
     done
   } > "$work_dir/parts"
+  if [ -f "$site_bundle_dir/$archive.parts" ] &&
+    { ! cmp -s "$site_bundle_dir/$archive.parts" "$work_dir/parts" ||
+      ! cmp -s "$site_bundle_dir/$archive.inventory.json" "$work_dir/inventory"; }; then
+    echo "refusing to overwrite immutable bundle metadata: $archive" >&2
+    exit 1
+  fi
+  for part in "$work_dir"/part-*; do
+    install -D -m 0644 "$part" "$site_bundle_dir/${archive}.part-${part##*-}"
+  done
+  install -m 0644 "$work_dir/inventory" "$site_bundle_dir/$archive.inventory.json"
   install -m 0644 "$work_dir/parts" "$site_bundle_dir/$archive.parts"
 )
 
@@ -231,7 +235,7 @@ prepare_bundle() {
     exit 1
   fi
   inventory_sha=$(sha256_file "$work_dir/inventory")
-  if [ "$promote" = true ]; then verify_published; else stage_assets; fi
+  if [ "$bundle_activate" = true ]; then verify_published; else stage_assets; fi
 
   public_url="/bundles/$BUNDLE_VERSION/$archive.parts"
   domestic_json=$(domestic_urls_json "$architecture" "$archive")
@@ -255,18 +259,15 @@ prepare_bundle amd64 x86_64-unknown-linux-musl
 prepare_bundle arm64 aarch64-unknown-linux-musl
 printf '\n]}\n' >> "$payload_file"
 
-if [ "$promote" = false ]; then
+if [ "$bundle_activate" = false ]; then
   # Static files must exist before their D1 records can be returned to a node.
   (cd "$api_dir" && npm exec -- wrangler deploy --config "$files_config" >&2)
-fi
-
-if [ "$bundle_activate" = false ]; then
   cat "$payload_file"
   echo "published static assets for $BUNDLE_VERSION; activation was intentionally skipped" >&2
   exit 0
 fi
 
-printf 'authorization: Bearer %s\n' "$BUNDLE_PUBLISH_TOKEN" | curl --fail-with-body --silent --show-error \
+printf 'authorization: Bearer %s\n' "$TUNNEL_API_TOKEN" | curl --fail-with-body --silent --show-error \
   --header @- \
   --header "content-type: application/json" \
   --data-binary "@$payload_file" \

@@ -41,7 +41,7 @@ export function App() {
   const context = telegramContext();
   const [selection, setSelection] = createSignal<Selection>();
   const [inventory, setInventory] = createSignal(false);
-  const { clusters, setClusters, selectedId, cluster, phase, loadError, chooseCluster, refresh } =
+  const { clusters, setClusters, selectedId, cluster, phase, loadError, chooseCluster, refresh, releaseOperator } =
     createClusterData(context.initData, () => { setSelection(undefined); setInventory(false); });
   const [adding, setAdding] = createSignal(false);
   const [creationError, setCreationError] = createSignal("");
@@ -76,7 +76,8 @@ export function App() {
             </button>
           </Show>
           <AddMenu clusterId={selectedId()} testing={clusters().some((item) => item.id === selectedId() && item.release_track === "testing")}
-            initData={context.initData} refresh={refresh} newCluster={() => { setCreationError(""); setAdding(true); }}
+            initData={context.initData} releaseOperator={releaseOperator()} refresh={refresh}
+            newCluster={() => { setCreationError(""); setAdding(true); }}
             newTunnel={(cluster()?.nodes.length ?? 0) >= 2 ? () => setAddingTunnel(true) : undefined} />
         </nav>
       </Show>

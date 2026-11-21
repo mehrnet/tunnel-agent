@@ -65,10 +65,16 @@ wrangler secret put TELEGRAM_WEBHOOK_SECRET
 6. Configure Telegram to post to
    `https://tunnel-api.mehrnet.com/api/telegram/webhook` with the same
    webhook secret.
-7. Set `BUNDLE_PUBLISH_TOKEN` as a Worker secret. The release publisher uses
-   the scoped activation endpoint to atomically set the testing or stable
-   pointer for both architectures. The installer rejects enrollment until
-   exact release archive hashes and static chunk manifests are registered.
+7. Set `RELEASE_OPERATOR_TELEGRAM_IDS` as a Worker variable containing the
+   comma-separated Telegram numeric IDs of fleet release operators. If empty,
+   release credential issuance and activation are disabled.
+
+Operators create or revoke their personal token from **+ → Release API token**
+in Tunnel Owners. Tokens expire after 30 days, are shown once, and are stored
+as SHA-256 hashes in D1. Rotating a token invalidates the previous one. Use the
+token as a bearer credential for `POST /api/v1/admin/bundles/activate`;
+activation records the operator and sets both architectures atomically.
+Membership in a customer cluster does not grant fleet release access.
 
 See [release publishing](BOOTSTRAP.md#2-publish-a-bundle-and-its-mirrors) for
 the GitHub Latest, live testing, and stable promotion sequence. Changing
@@ -87,8 +93,8 @@ Iranian mirror serves the full release archive instead.
 ## Domain migration
 
 `tunnel-api` is a new Worker name. Cloudflare does not copy encrypted secrets
-between Worker names, so set `TELEGRAM_BOT_TOKEN`,
-`TELEGRAM_WEBHOOK_SECRET`, and `BUNDLE_PUBLISH_TOKEN` on `tunnel-api` before
+between Worker names, so set `TELEGRAM_BOT_TOKEN` and
+`TELEGRAM_WEBHOOK_SECRET` on `tunnel-api` before
 deploying it. Verify `/api/health`, the Telegram webhook, and an installer
 response from `tunnel-files.mehrnet.com` before removing the former
 `tunnel-agent.mehrnet.com` custom domain.

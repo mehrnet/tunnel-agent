@@ -6,6 +6,7 @@ import { observatoryLanes } from "./observatory-lanes";
 import { observatoryDocuments, observatoryLaneMetrics, observatoryNodes } from "./observatory-store";
 import { clusterById, clustersForOwner, createClusterForOwner } from "./store";
 import { ownerFromTelegram } from "./web-auth";
+import { isReleaseOperator } from "./release-auth";
 import { managedLanes } from "./tunnel-store";
 import { now } from "./validation";
 
@@ -19,7 +20,7 @@ export async function handleWebClusters(request: Request, env: Env): Promise<Res
     if (!name || name.length > 80) return error("Cluster name must be 1–80 characters", 400);
     return json({ cluster: await createClusterForOwner(env, owner.id, name) });
   }
-  return json({ clusters: await clustersForOwner(env, owner.id) });
+  return json({ clusters: await clustersForOwner(env, owner.id), release_operator: isReleaseOperator(env, owner) });
 }
 
 export async function handleWebCluster(request: Request, env: Env, clusterId: string): Promise<Response> {

@@ -1,6 +1,7 @@
 {
   "$schema": "https://unpkg.com/wrangler/config-schema.json",
   "name": "tunnel-api",
+  "keep_vars": true,
   "account_id": "94eee55a09ab74b34c825f704aa6b4cf",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-11-13",
@@ -31,7 +32,6 @@
     "ENROLLMENT_TTL_SECONDS": "900",
     "MANAGED_TUNNEL_ACTIVATION": "1"
   }
-  // Set TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, BUNDLE_PUBLISH_TOKEN,
-  // and optionally DOMESTIC_BOOTSTRAP_URL with `wrangler secret put`; no
-  // credential belongs in vars, this file, or source control.
+  // Set TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET with `wrangler secret put`.
+  // Manage the RELEASE_OPERATOR_TELEGRAM_IDS variable outside source control.
 }

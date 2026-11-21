@@ -51,7 +51,13 @@ marked Latest without making them stable for managed nodes. Use one patch
 digit (`v0.5.9` is followed by `v0.6.0`). The same files move from testing to
 stable without another build or a `-canary` tag.
 
-Download the GitHub Latest release, then publish it to the testing track:
+The Release workflow also runs **Publish tunnel files**. It deploys the new
+chunks to Cloudflare, restores older bundle paths before each deploy, and
+does not change either fleet track. Configure the GitHub Actions secret
+`CLOUDFLARE_API_TOKEN` with access to deploy `tunnel-files`. To retry an
+existing release, dispatch the same workflow with that exact tag.
+
+After the files job succeeds, download the release and activate testing:
 
 ```sh
 version=$(gh release view --json tagName --jq .tagName)
@@ -61,9 +67,10 @@ BUNDLE_VERSION="$version" BUNDLE_SOURCE_DIR="$download_dir" \
   BUNDLE_ACTIVATE=true BUNDLE_TRACK=testing ./tools/publish.sh
 ```
 
-Export `BUNDLE_PUBLISH_TOKEN` securely before running the publisher. To upload
-files without moving a track, omit `BUNDLE_ACTIVATE=true`. The publisher
-prepares the global static site:
+Create your personal `TUNNEL_API_TOKEN` in **+ → Release API token** in Tunnel
+Owners and export it securely before activating a track. This is distinct
+from the Cloudflare deploy credential. Activation checks published files; it
+never redeploys the static site. GitHub Actions publishes:
 
 ```text
 /install.sh
@@ -96,8 +103,7 @@ DOMESTIC_BUNDLE_FORMAT=manifest \
 ./tools/publish.sh
 ```
 
-`BUNDLE_PUBLISH_TOKEN` is a Worker secret. The publisher deploys static assets
-first, then invokes the narrow `/api/v1/admin/bundles/activate` endpoint. That
+The publisher invokes the narrow `/api/v1/admin/bundles/activate` endpoint. That
 endpoint only accepts the two expected architecture manifest paths for one
 version and moves the chosen track for both architectures atomically. Nodes
 outside the testing cluster remain on stable; publishing to testing never

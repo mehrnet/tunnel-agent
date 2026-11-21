@@ -1,6 +1,7 @@
 import { Show, createSignal, onCleanup, onMount } from "solid-js";
 import { postOwner } from "../api/client";
 import { OwnerDialog } from "./OwnerDialog";
+import { ReleaseTokenDialog } from "./ReleaseTokenDialog";
 
 function ServerDialog(props: { busy: boolean; error: string; close: () => void; submit: (event: SubmitEvent) => void }) {
   return <OwnerDialog class="node-popup lane-editor" title="new-server-title" close={props.close}>
@@ -17,9 +18,11 @@ function ServerDialog(props: { busy: boolean; error: string; close: () => void; 
   </OwnerDialog>;
 }
 
-export function AddMenu(props: { clusterId: string; testing: boolean; initData?: string; newCluster: () => void; newTunnel?: () => void; refresh: () => void }) {
+export function AddMenu(props: { clusterId: string; testing: boolean; initData?: string; releaseOperator: boolean;
+  newCluster: () => void; newTunnel?: () => void; refresh: () => void }) {
   const [open, setOpen] = createSignal(false);
   const [server, setServer] = createSignal(false);
+  const [releaseToken, setReleaseToken] = createSignal(false);
   const [error, setError] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [confirmTrack, setConfirmTrack] = createSignal(false);
@@ -59,6 +62,7 @@ export function AddMenu(props: { clusterId: string; testing: boolean; initData?:
       <button type="button" disabled={!props.clusterId} onClick={() => { clearMenu(); setServer(true); }}>New server</button>
       <button type="button" onClick={() => { clearMenu(); props.newCluster(); }}>New cluster</button>
       <Show when={props.newTunnel}><button type="button" onClick={() => { clearMenu(); props.newTunnel?.(); }}>New tunnel</button></Show>
+      <Show when={props.releaseOperator}><button type="button" onClick={() => { clearMenu(); setReleaseToken(true); }}>Release API token</button></Show>
       <Show when={props.clusterId && props.initData}>
         <Show when={confirmTrack()} fallback={<button type="button" onClick={() => setConfirmTrack(true)}>{props.testing ? "Use stable releases" : "Set as testing cluster"}</button>}>
           <p>Change the release track for every server in this cluster?</p>
@@ -69,5 +73,8 @@ export function AddMenu(props: { clusterId: string; testing: boolean; initData?:
       <Show when={error()}><p role="alert">{error()}</p></Show>
     </div></Show>
     <Show when={server()}><ServerDialog busy={busy()} error={error()} close={() => setServer(false)} submit={(event) => void submit(event)} /></Show>
+    <Show when={releaseToken() && props.releaseOperator}>
+      <ReleaseTokenDialog initData={props.initData ?? ""} close={() => setReleaseToken(false)} />
+    </Show>
   </div>;
 }

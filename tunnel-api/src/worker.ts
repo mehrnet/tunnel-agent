@@ -8,6 +8,7 @@ import type { Env } from "./models";
 import { handleEnroll, handleNodeDocument } from "./nodes";
 import { handleRelayDocuments } from "./relay";
 import { handleReleaseTrack } from "./release-tracks";
+import { handleReleaseToken } from "./release-auth";
 import { handleTelegram } from "./telegram";
 import { handleRelayTelemetry, handleTelemetry } from "./telemetry";
 import { handleWebCluster, handleWebClusters } from "./web";
@@ -34,6 +35,7 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext): Pro
   if (url.pathname === "/api/telegram/webhook") return handleTelegram(request, env, ctx);
   if (url.pathname === "/api/v1/web/clusters") return handleWebClusters(request, env);
   if (url.pathname === "/api/v1/web/nodes") return handleWebNode(request, env);
+  if (url.pathname === "/api/v1/web/release-token") return handleReleaseToken(request, env);
   const action = clusterAction(request, env, url.pathname);
   if (action) return action;
   const lifecycle = url.pathname.match(/^\/api\/v1\/web\/nodes\/([0-9a-f-]{36})\/lifecycle$/);

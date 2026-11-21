@@ -6,6 +6,7 @@ type DataPhase = "ready" | "loading" | "empty" | "error" | "telegram";
 
 export function createClusterData(initData: string | undefined, onClusterChange: () => void) {
   const [clusters, setClusters] = createSignal<ClusterSummary[]>([]);
+  const [releaseOperator, setReleaseOperator] = createSignal(false);
   const [selectedId, setSelectedId] = createSignal("");
   const [cluster, setCluster] = createSignal<ClusterResponse>();
   const [phase, setPhase] = createSignal<DataPhase>(initData ? "loading" : "telegram");
@@ -48,7 +49,8 @@ export function createClusterData(initData: string | undefined, onClusterChange:
     if (!initData) return;
     setPhase("loading");
     try {
-      const owned = await fetchClusters(initData);
+      const { clusters: owned, release_operator: operator } = await fetchClusters(initData);
+      setReleaseOperator(operator);
       setClusters(owned);
       if (owned.length === 0) return setPhase("empty");
       const id = owned.find((item) => item.id === selectedId())?.id ?? owned[0].id;
@@ -74,5 +76,5 @@ export function createClusterData(initData: string | undefined, onClusterChange:
     const poll = setInterval(() => void refreshSnapshot(), 15_000);
     onCleanup(() => { clearInterval(poll); ++loadSequence; });
   });
-  return { clusters, setClusters, selectedId, cluster, phase, loadError, chooseCluster, refresh };
+  return { clusters, setClusters, selectedId, cluster, phase, loadError, chooseCluster, refresh, releaseOperator };
 }

@@ -5,7 +5,8 @@ import { nodeById, requireGrant } from "./store";
 import { authorizeNode } from "./nodes";
 import { base64Url } from "./encoding";
 import { signApiPayload } from "./signing";
-import { BUNDLE_VERSION, equalSecret, filesOrigin, HEX_64, now, validArchitecture } from "./validation";
+import { releaseOperator } from "./release-auth";
+import { BUNDLE_VERSION, filesOrigin, HEX_64, now, validArchitecture } from "./validation";
 
 const MAX_DOMESTIC_MIRRORS = 4;
 const RELEASE_VERSION = /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.\d$/;
@@ -124,9 +125,8 @@ export async function handleBootstrap(request: Request, env: Env): Promise<Respo
 
 export async function handleBundleActivation(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") return error("method not allowed", 405);
-  const authorization = request.headers.get("authorization");
-  const token = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : null;
-  if (!equalSecret(token, env.BUNDLE_PUBLISH_TOKEN)) return error("unauthorized", 401);
+  const operator = await releaseOperator(request, env);
+  if (!operator) return error("unauthorized", 401);
 
   const activation = parseBundleActivation(await parseJson(request));
   if (!activation) return error("invalid bundle activation payload", 400);
@@ -172,9 +172,10 @@ export async function handleBundleActivation(request: Request, env: Env): Promis
   if (activation.track === "testing") statements.push(env.DB.prepare("DELETE FROM seed_canary_releases"));
   statements.push(env.DB.prepare(
     `INSERT INTO audit_events (id, owner_id, node_id, cluster_id, action, detail_json, created_at)
-     VALUES (?, NULL, NULL, NULL, ?, ?, ?)`,
+     VALUES (?, ?, NULL, NULL, ?, ?, ?)`,
   ).bind(
     crypto.randomUUID(),
+    operator.id,
     "bundle.activated",
     JSON.stringify({ version: activation.version, track: activation.track }),
     timestamp,
