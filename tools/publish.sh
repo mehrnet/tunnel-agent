@@ -213,6 +213,14 @@ verify_published() (
   fi
 )
 
+deploy_assets() (
+  cd "$api_dir"
+  tag="bundles-$BUNDLE_VERSION-${GITHUB_RUN_ID:-$(date +%s)}-${GITHUB_RUN_ATTEMPT:-$$}"
+  # Deploy an asset version without rewriting custom-domain or DNS settings.
+  npm exec -- wrangler versions upload --config "$files_config" --tag "$tag"
+  npm exec -- wrangler versions deploy --config "$files_config" --version-tag "$tag" --yes
+)
+
 prepare_bundle() {
   architecture=$1
   target=$2
@@ -261,7 +269,7 @@ printf '\n]}\n' >> "$payload_file"
 
 if [ "$bundle_activate" = false ]; then
   # Static files must exist before their D1 records can be returned to a node.
-  (cd "$api_dir" && npm exec -- wrangler deploy --config "$files_config" >&2)
+  deploy_assets >&2
   cat "$payload_file"
   echo "published static assets for $BUNDLE_VERSION; activation was intentionally skipped" >&2
   exit 0
