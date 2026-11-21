@@ -55,11 +55,18 @@ function useMapCamera() {
   return { ...viewport, size, attach };
 }
 
-function MapLegend() {
-  return <ul class="map-legend" aria-label="Lane legend">
-    <li data-line="customer">Customer</li><li data-line="management">Management</li>
-    <li data-line="degraded">Degraded</li><li data-line="unknown">No current probe</li>
-  </ul>;
+function MapLegend(props: { unmapped: number }) {
+  return <details class="map-key">
+    <summary>Legend</summary>
+    <div class="map-key__body">
+      <ul class="map-legend" aria-label="Lane legend">
+        <li data-line="customer">Customer</li><li data-line="management">Management</li>
+        <li data-line="degraded">Degraded</li><li data-line="unknown">No current probe</li>
+      </ul>
+      <Show when={props.unmapped > 0}><p>{props.unmapped} unmapped in inventory</p></Show>
+      <p>Drag to pan. Pinch or use the zoom controls.</p>
+    </div>
+  </details>;
 }
 
 function MapControls(props: {
@@ -94,10 +101,11 @@ export function TopologyMap(props: {
   const reset = () => { setFocusOffset({ x: 0, y: 0 }); camera.reset(); };
   const placement = createMemo(() => {
     const { width, height } = camera.size();
-    const fit = width && height ? Math.min(1, width / layout().width, height / layout().height) : 1;
+    const usableHeight = Math.max(1, height - 52);
+    const fit = width && height ? Math.min(1, width / layout().width, usableHeight / layout().height) : 1;
     const scale = fitted() ? fit : Math.max(rotated() ? 0.58 : 0.78, fit);
     const x = Math.max(0, (width - scale * layout().width) / 2);
-    const y = Math.max(0, Math.min(44, (height - scale * layout().height) / 2));
+    const y = Math.max(0, Math.min(44, (usableHeight - scale * layout().height) / 2));
     const view = camera.view();
     return {
       scale: scale * view.scale,
@@ -118,10 +126,7 @@ export function TopologyMap(props: {
   const selectNode = (id: string) => props.onSelect({ kind: "node", id });
   return <div class="topology-frame"><section id="topology-panel" class="topology-panel" classList={{ "topology-panel--vertical": rotated() }}
     aria-labelledby="topology-title" data-layout={portrait() ? "portrait" : "landscape"}>
-    <header class="workspace-panel-heading">
-      <div><p class="section-label">Topology</p><h2 id="topology-title">Network map</h2></div>
-      <MapLegend />
-    </header>
+    <h2 id="topology-title" class="visually-hidden">Network map</h2>
     <div class="topology-viewport" ref={camera.attach} onPointerDown={camera.down} onPointerMove={camera.move}
       onPointerUp={camera.up} onPointerCancel={camera.up} onPointerLeave={camera.leave} onFocusIn={followFocus}>
       <div class="topology-grid" style={{ "--grid-step": `${24 * placement().scale}px`, "--grid-x": `${placement().x}px`, "--grid-y": `${placement().y}px` }} />
@@ -148,10 +153,10 @@ export function TopologyMap(props: {
         </div>
       </Show>
     </div>
-    <footer class="map-footer">
-      <span class="map-footer__hint">{layout().unmapped ? `${layout().unmapped} unmapped in inventory` : "Drag to pan"}<span> / </span><span>{portrait() ? "Pinch to zoom" : "Select to inspect"}</span></span>
+    <div class="map-tools">
+      <MapLegend unmapped={layout().unmapped} />
       <MapControls rotated={rotated()} fitted={isFitted()} scale={camera.view().scale} renderedScale={placement().scale}
         onRotate={() => { rotate(); reset(); }} onFit={() => { if (!fitted() || isFitted()) toggleFit(); reset(); }} onZoom={camera.zoom} />
-    </footer>
+    </div>
   </section></div>;
 }

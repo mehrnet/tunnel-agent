@@ -1,7 +1,7 @@
 .topology-frame { position: relative; min-width: 0; min-height: 0; container-type: size; overflow: clip; }
-.topology-panel { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; width: 100%; height: 100%; border: 1px solid var(--edge); background: var(--surface); }
+.topology-panel { position: relative; width: 100%; height: 100%; background: var(--surface); }
 .topology-panel--vertical { width: 100cqh; height: 100cqw; transform: translateX(100cqw) rotate(90deg); transform-origin: 0 0; }
-.topology-viewport { position: relative; isolation: isolate; min-height: 0; overflow: clip; background: var(--map); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.topology-viewport { position: absolute; inset: 0; isolation: isolate; overflow: clip; background: var(--map); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .topology-viewport:active { cursor: grabbing; }
 .topology-viewport * { -webkit-tap-highlight-color: transparent; }
 .topology-grid {
@@ -63,10 +63,15 @@
 .map-empty strong { color: var(--text); font: 700 24px var(--display); }
 .map-empty p { max-width: 34ch; font-size: 14px; }
 
-.map-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 10px 6px 15px; border-top: 1px solid var(--edge); }
-.map-footer__hint { color: var(--muted); font: 400 11px/1.3 var(--mono); }
-.map-footer__hint span:first-child { color: var(--brand); }
-.map-controls { display: flex; flex: none; align-items: center; border: 1px solid var(--edge); border-radius: 3px; background: var(--surface-soft); }
+.map-tools { position: absolute; inset: auto 10px 8px; display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; pointer-events: none; }
+.map-tools > * { pointer-events: auto; }
+.map-key { position: relative; flex: none; }
+.map-key summary, .map-key__body, .map-controls { border: 1px solid var(--edge-bright); border-radius: 3px; background: var(--surface-soft); box-shadow: var(--shadow); }
+.map-key summary { cursor: pointer; padding: 0 9px; min-height: 36px; color: var(--text-soft); font: 500 11px/34px var(--mono); }
+.map-key summary:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+.map-key__body { position: absolute; bottom: calc(100% + 6px); inset-inline-start: 0; width: 186px; padding: 10px; }
+.map-key__body p { margin-top: 9px; color: var(--muted); font-size: 11px; }
+.map-controls { display: flex; flex: none; align-items: center; }
 .map-controls button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; background: transparent; color: var(--text); }
 .map-controls button[aria-pressed="true"] { color: var(--brand); background: var(--brand-soft); }
 .map-controls button:hover:not(:disabled) { background: var(--surface-strong); }

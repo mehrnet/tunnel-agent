@@ -1,6 +1,7 @@
 import { Index, Show, createMemo, createSignal } from "solid-js";
 import type { ClusterNode, ClusterResponse, Selection, TunnelLane } from "../data/types";
 import { laneHealth, listenerLabel, nodeStatus, routeKind } from "../lib/workbench-status";
+import { formatMoment } from "../lib/format";
 import { WorkbenchIcon } from "./WorkbenchIcon";
 
 interface InventoryItem {
@@ -70,11 +71,16 @@ export function InventoryPanel(props: {
     const names = new Map(props.cluster.nodes.map((node) => [node.id, node.name]));
     return props.cluster.lanes.map((lane) => laneItem(lane, names)).filter(matches);
   });
-  const total = () => props.cluster.nodes.length + props.cluster.lanes.length;
+  const active = () => props.cluster.nodes.filter((node) => nodeStatus(node) === "Active").length;
+  const degraded = () => props.cluster.lanes.filter((lane) => laneHealth(lane) === "Degraded").length;
   return <section id="inventory-panel" class="inventory-panel" aria-labelledby="inventory-title">
     <header class="workspace-panel-heading">
-      <div><p class="section-label">Cluster assets</p><h2 id="inventory-title">Inventory</h2></div>
-      <span class="inventory-panel__total">{total()} {total() === 1 ? "item" : "items"}</span>
+      <div><p class="section-label">{props.cluster.cluster.name}</p><h2 id="inventory-title">Inventory</h2></div>
+      <p class="inventory-panel__summary">
+        <span>{active()}/{props.cluster.nodes.length} servers active</span>
+        <span classList={{ "has-degraded": degraded() > 0 }}>{degraded()}/{props.cluster.lanes.length} lanes degraded</span>
+        <span>Snapshot {formatMoment(props.cluster.generated_at)}</span>
+      </p>
     </header>
     <div class="inventory-panel__search">
       <WorkbenchIcon name="search" />

@@ -40,8 +40,9 @@ function ClusterDialog(props: { error: string; onClose: () => void; onSubmit: (e
 export function App() {
   const context = telegramContext();
   const [selection, setSelection] = createSignal<Selection>();
+  const [inventory, setInventory] = createSignal(false);
   const { clusters, setClusters, selectedId, cluster, phase, loadError, chooseCluster, refresh } =
-    createClusterData(context.initData, () => setSelection(undefined));
+    createClusterData(context.initData, () => { setSelection(undefined); setInventory(false); });
   const [adding, setAdding] = createSignal(false);
   const [creationError, setCreationError] = createSignal("");
   const [addingTunnel, setAddingTunnel] = createSignal(false);
@@ -58,10 +59,9 @@ export function App() {
 
   return (
     <main class="app-shell" dir="ltr" data-theme={context.colorScheme}>
-      <Masthead telegram={context.source === "telegram"} />
-      <Show when={context.initData}>
+      <Show when={context.initData} fallback={<Masthead telegram={context.source === "telegram"} />}>
         <nav class="cluster-tabs" aria-label="Clusters">
-          <span class="section-label cluster-tabs__caption">Clusters</span>
+          <h1 class="cluster-tabs__brand" title="Tunnel Owners"><WorkbenchIcon name="brand" /><span class="visually-hidden">Tunnel Owners</span></h1>
           <div class="cluster-tabs__list">
             <For each={clusters()} fallback={<span class="cluster-tabs__none">{phase() === "loading" ? "Loading clusters" : "No clusters"}</span>}>
               {(item) => <button type="button" aria-current={item.id === selectedId() ? "true" : undefined} onClick={() => chooseCluster(item.id)}>
@@ -69,6 +69,12 @@ export function App() {
               </button>}
             </For>
           </div>
+          <Show when={snapshot() && phase() !== "error"}>
+            <button class="workspace-toggle" type="button" aria-controls="cluster-workspace"
+              onClick={() => setInventory(!inventory())}>
+              <WorkbenchIcon name={inventory() ? "map" : "inventory"} />{inventory() ? "Map" : "Inventory"}
+            </button>
+          </Show>
           <AddMenu clusterId={selectedId()} testing={clusters().some((item) => item.id === selectedId() && item.release_track === "testing")}
             initData={context.initData} refresh={refresh} newCluster={() => { setCreationError(""); setAdding(true); }}
             newTunnel={(cluster()?.nodes.length ?? 0) >= 2 ? () => setAddingTunnel(true) : undefined} />
@@ -77,12 +83,12 @@ export function App() {
       <Show when={adding()}><ClusterDialog error={creationError()} onClose={() => setAdding(false)} onSubmit={(event) => void addCluster(event)} /></Show>
       <Show when={addingTunnel() && cluster()}>{(current) => <NewTunnel cluster={current()} initData={context.initData ?? ""}
         close={() => setAddingTunnel(false)} saved={() => { setAddingTunnel(false); refresh(); }} />}</Show>
-      <div class="app-workspace">
+      <div id="cluster-workspace" class="app-workspace">
         <Switch>
           <Match when={phase() === "telegram"}><StatePanel state="telegram" /></Match>
           <Match when={phase() === "error"}><StatePanel state="error" detail={loadError()} onRetry={refresh} /></Match>
           <Match when={phase() === "empty"}><StatePanel state="empty" /></Match>
-          <Match when={snapshot()}>{(current) => <Dashboard cluster={current()} selection={selection()} initData={context.initData ?? ""}
+          <Match when={snapshot()}>{(current) => <Dashboard cluster={current()} inventory={inventory()} selection={selection()} initData={context.initData ?? ""}
             refresh={refresh} onSelect={setSelection} />}</Match>
           <Match when={phase() === "loading"}><StatePanel state="loading" /></Match>
         </Switch>
