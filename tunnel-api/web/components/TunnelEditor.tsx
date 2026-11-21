@@ -35,6 +35,7 @@ function TransportFields(props: { transport: string; kind: string; setTransport:
     </div>
     <Show when={props.transport === "wstunnel"}>
       <label>TLS server name <input name="tls_server_name" placeholder="Required when dialing an IP address" maxlength="253" /></label>
+      <Show when={props.kind === "tcp"}><label><input type="checkbox" name="forward_udp" /> Forward UDP too</label></Show>
     </Show>
   </fieldset>;
 }
@@ -59,6 +60,7 @@ export function NewTunnel(props: { cluster: ClusterResponse; initData: string; c
       await postOwner(`/clusters/${props.cluster.cluster.id}/tunnels`, props.initData, {
         source_node_id: fields.get("source"), listener_node_id: fields.get("listener"), transport: transport(),
         listener_type: kind(), listener_port: Number(fields.get("listener_port")), control_port: Number(fields.get("control_port")),
+        forward_udp: fields.has("forward_udp"),
         tls_server_name: fields.get("tls_server_name"),
         destination_host: fields.get("destination_host"), destination_port: Number(fields.get("destination_port")),
       });

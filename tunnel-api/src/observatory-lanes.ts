@@ -133,7 +133,10 @@ function managedEdge(lane: ManagedLane) {
     edge: {
       id: lane.id, kind: "tunnel", transport: lane.transport, direction: lane.direction, priority: null,
       selected: lane.enabled === 1, source_node_id: lane.source_node_id, peer_node_id: lane.listener_node_id,
-      local_listener: listenerAddress({ scheme: lane.listener_type, bind: lane.listener_bind, port: lane.listener_port }),
+      local_listener: listenerAddress({
+        scheme: lane.forward_udp ? "tcp+udp" : lane.listener_type,
+        bind: lane.listener_bind, port: lane.listener_port,
+      }),
       managed: { ...lane, enabled: lane.enabled === 1 },
     },
   };

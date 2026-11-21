@@ -9,6 +9,7 @@ export interface Intent {
   listener_node_id: string;
   transport: TunnelTransport;
   listener_type: "tcp" | "socks5";
+  forward_udp: number;
   listener_port: number;
   control_port: number;
   tls_server_name: string | null;
@@ -57,12 +58,16 @@ export function parseIntent(body: Record<string, unknown>, clusterId: string): I
     throw new Error("Select WSTunnel, HPNSSH, or Rathole");
   }
   if (transport === "rathole" && type !== "tcp") throw new Error("Rathole requires a fixed TCP destination");
+  if (body.forward_udp !== undefined && typeof body.forward_udp !== "boolean") throw new Error("Invalid UDP forwarding flag");
+  const forwardUdp = body.forward_udp === true;
+  if (forwardUdp && (transport !== "wstunnel" || type !== "tcp")) throw new Error("UDP requires a fixed WSTunnel destination");
   const listenerPort = port(body.listener_port, 1024);
   const controlPort = port(body.control_port, 1024);
   if (listenerPort === controlPort) throw new Error("Use different listener and control ports");
   return {
     id: crypto.randomUUID(), cluster_id: clusterId, source_node_id: source, listener_node_id: listener,
-    transport, listener_type: type, listener_port: listenerPort, control_port: controlPort, path_key: randomToken(),
+    transport, listener_type: type, forward_udp: Number(forwardUdp),
+    listener_port: listenerPort, control_port: controlPort, path_key: randomToken(),
     tls_server_name: transport === "wstunnel" ? tlsName(body.tls_server_name) : null,
     enabled: 0, revision: 1,
     ...(type === "tcp" ? destination(body) : { destination_host: null, destination_port: null }),
@@ -80,11 +85,13 @@ export function wstunnelContracts(intent: Intent, serverHost: string) {
       ...common, contract: "wstunnel.server.v1", listener: { bind: "0.0.0.0", port: intent.control_port },
       path_prefix: prefix, tls_certificate: "/etc/tunnel-agent/tls/fullchain.pem",
       tls_private_key: "/etc/tunnel-agent/tls/privkey.pem",
+      ...(intent.forward_udp ? { fixed_reverse_port: intent.listener_port } : {}),
     },
     client: {
       ...common, contract: "wstunnel.reverse.v1",
       endpoint: { url: `wss://${serverHost}:${intent.control_port}`, tls_sni: serverName, path_prefix: prefix, verify_certificate: true },
       remote_listener: { scheme: intent.listener_type, bind: "127.0.0.1", port: intent.listener_port, target },
+      ...(intent.forward_udp ? { forward_udp: true } : {}),
     },
   };
 }

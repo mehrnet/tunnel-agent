@@ -4,6 +4,7 @@ export interface TransportKeys {
   hpnssh: string | null;
   rathole: string | null;
   kernel_ingress?: boolean;
+  public_forward_v2?: boolean;
 }
 
 function hpnKey(value: string): boolean {
@@ -21,9 +22,10 @@ function noiseKey(value: string): boolean {
 
 export function parseTransportKeys(value: unknown): TransportKeys | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-  const { hpnssh, rathole, kernel_ingress } = value as Record<string, unknown>;
+  const { hpnssh, rathole, kernel_ingress, public_forward_v2 } = value as Record<string, unknown>;
   if (hpnssh !== null && (typeof hpnssh !== "string" || !hpnKey(hpnssh))) return null;
   if (rathole !== null && (typeof rathole !== "string" || !noiseKey(rathole))) return null;
   if (kernel_ingress !== undefined && typeof kernel_ingress !== "boolean") return null;
-  return { hpnssh, rathole, kernel_ingress };
+  if (public_forward_v2 !== undefined && typeof public_forward_v2 !== "boolean") return null;
+  return { hpnssh, rathole, kernel_ingress, public_forward_v2 };
 }

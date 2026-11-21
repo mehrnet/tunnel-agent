@@ -272,6 +272,7 @@ pub struct WstunnelServer {
     pub tls_certificate: PathBuf,
     pub tls_private_key: PathBuf,
     pub path_prefix: String,
+    pub fixed_reverse_port: Option<u16>,
     #[serde(default = "default_wstunnel_worker_threads")]
     pub worker_threads: u16,
     #[serde(default)]
@@ -291,6 +292,8 @@ pub struct WstunnelReverse {
     pub artifact: String,
     pub endpoint: WstunnelEndpoint,
     pub remote_listener: TunnelListener,
+    #[serde(default)]
+    pub forward_udp: bool,
     #[serde(default = "default_wstunnel_worker_threads")]
     pub worker_threads: u16,
     #[serde(default)]

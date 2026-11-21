@@ -42,6 +42,7 @@ export interface TunnelLane {
     enabled: boolean;
     revision: number;
     listener_type: "tcp" | "socks5";
+    forward_udp: number;
     control_port: number;
     tls_server_name: string | null;
     destination_host: string | null;
@@ -89,7 +90,8 @@ export interface ClusterResponse {
     port: number;
     lane_id: string;
     fallback_lane_id: string | null;
-    tls_server_name: string;
+    tls_server_name: string | null;
+    forward_udp: boolean;
   }>;
 }
 

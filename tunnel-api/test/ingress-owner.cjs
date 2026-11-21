@@ -53,4 +53,40 @@ async function verifyIngress({ env, call, path, config, report, keys }) {
   })).status, 409);
 }
 
-module.exports = { verifyIngress };
+async function verifyDualIngress({ env, call, path, config, report, keys }) {
+  const listener = config.listener_node_id;
+  const docs = () => env.DB.prepare("SELECT revision,manifest_json FROM node_documents WHERE node_id=?").bind(listener).first();
+  const tunnels = path + "/tunnels";
+  const ingress = path + "/public-ingress";
+  const draft = await call(tunnels, { ...config, transport: "wstunnel", listener_type: "tcp", forward_udp: true,
+    listener_port: 48000, control_port: 47000 });
+  assert.equal(draft.status, 201, await draft.clone().text());
+  const { id } = await draft.json();
+  const enable = lane => call(tunnels + "/" + lane, { action: "enable", revision: 1 });
+  assert.equal((await enable(id)).status, 409);
+  assert(!JSON.parse((await docs()).manifest_json).tunnels.some(t => t.id === "owned-" + id));
+  for (const node of [listener, config.source_node_id]) {
+    await report(node, { ...keys, kernel_ingress: true, public_forward_v2: true });
+  }
+  const enabled = await enable(id);
+  assert.equal(enabled.status, 200, await enabled.text());
+  for (let i = 0; i < 20; i++) {
+    const lane = i === 0 ? id : await createLane(call, path, {
+      ...config, listener_port: 48000, control_port: 47000, forward_udp: true,
+    }, "wstunnel", i);
+    const put = await call(ingress, { action: "set", node_id: listener, port: 31000 + i,
+      lane_id: lane, revision: (await docs()).revision });
+    assert.equal(put.status, 200, await put.text());
+  }
+  const finalDoc = JSON.parse((await docs()).manifest_json);
+  const dual = finalDoc.public_ingress.filter(route => route.forward_udp);
+  assert.equal(dual.length, 20);
+  assert.equal(finalDoc.tunnels.find(t => t.id === "owned-" + id).fixed_reverse_port, 48000);
+  const source = await env.DB.prepare("SELECT manifest_json FROM node_documents WHERE node_id=?").bind(config.source_node_id).first();
+  assert.equal(JSON.parse(source.manifest_json).tunnels.find(t => t.id === "owned-" + id).forward_udp, true);
+  const remove = await call(ingress, { action: "remove", node_id: listener, port: 31000, revision: (await docs()).revision });
+  assert.equal(remove.status, 200, await remove.text());
+  assert.equal((await call(tunnels + "/" + id, { action: "disable", revision: 2 })).status, 200);
+}
+
+module.exports = { verifyIngress, verifyDualIngress };

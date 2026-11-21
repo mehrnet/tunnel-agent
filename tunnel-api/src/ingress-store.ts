@@ -12,7 +12,8 @@ interface IngressRoute {
   port: number;
   primary: number;
   fallback: number | null;
-  tls_server_name: string;
+  tls_server_name: string | null;
+  forward_udp?: boolean;
 }
 
 interface IngressDocument {
@@ -29,6 +30,7 @@ interface ListenerNode {
   address: string | null;
   revision: number;
   manifest_json: string;
+  public_forward_v2: number | null;
 }
 
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
@@ -37,14 +39,15 @@ export function presentIngress(documents: Array<{ node_id: string; manifest_json
   return documents.flatMap((row) => {
     const doc = JSON.parse(row.manifest_json) as IngressDocument;
     return (doc.public_ingress ?? []).filter((route) => route.cluster_id === cluster)
-      .map(({ port, lane_id, fallback_lane_id, tls_server_name }) =>
-        ({ node_id: row.node_id, port, lane_id, fallback_lane_id, tls_server_name, revision: row.revision }));
+      .map(({ port, lane_id, fallback_lane_id, tls_server_name, forward_udp }) =>
+        ({ node_id: row.node_id, port, lane_id, fallback_lane_id, tls_server_name, forward_udp: !!forward_udp, revision: row.revision }));
   });
 }
 
 async function permittedNode(env: Env, cluster: string, id: string): Promise<ListenerNode> {
   const node = await env.DB.prepare(
-    `SELECT n.id,n.address,d.revision,d.manifest_json
+    `SELECT n.id,n.address,d.revision,d.manifest_json,
+            json_extract(t.transport_keys_json,'$.public_forward_v2') AS public_forward_v2
        FROM cluster_nodes m JOIN nodes n ON n.id=m.node_id
        JOIN node_documents d ON d.node_id=n.id JOIN node_telemetry t ON t.node_id=n.id
       WHERE m.cluster_id=? AND m.node_id=? AND n.status='enrolled'
@@ -91,7 +94,7 @@ async function checkPublicClaim(env: Env, node: ListenerNode, doc: IngressDocume
 function validateRequest(body: Record<string, unknown>) {
   const { node_id: id, port, revision } = body;
   if (typeof id !== "string" || !UUID.test(id)) throw new Error("Select a valid listening server");
-  if (typeof port !== "number" || !Number.isInteger(port) || port <= 0 || port > 65535) throw new Error("Invalid public TCP port");
+  if (typeof port !== "number" || !Number.isInteger(port) || port <= 0 || port > 65535) throw new Error("Invalid public port");
   if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0) throw new Error("Missing server document revision");
   return { id, port, revision };
 }
@@ -99,17 +102,25 @@ function validateRequest(body: Record<string, unknown>) {
 async function desiredRoute(env: Env, cluster: string, node: ListenerNode, port: number,
   body: Record<string, unknown>, original?: IngressRoute): Promise<IngressRoute> {
   const primary = await requireLane(env, cluster, node.id, body.lane_id);
+  const route = { cluster_id: cluster, address: addressOf(node), port, lane_id: primary.id, primary: primary.listener_port };
+  if (primary.forward_udp) {
+    if (!node.public_forward_v2 || primary.transport !== "wstunnel" || original && !original.forward_udp) {
+      throw new Error("Fixed TCP+UDP ingress requires a compatible agent and WSTunnel lane");
+    }
+    if (body.fallback_lane_id || body.tls_server_name) throw new Error("Fixed TCP+UDP ingress does not use TLS health checks or fallback");
+    return { ...route, fallback_lane_id: null, fallback: null, tls_server_name: null, forward_udp: true };
+  }
+  if (original?.forward_udp) throw new Error("Remove this TCP+UDP mapping before replacing it with a TCP-only route");
   const requested = selectFallback(body, primary.id, original);
   const fallback = await requireLane(env, cluster, node.id, requested);
-  if (fallback.id === primary.id || !sameDestination(primary, fallback)) {
+  if (fallback.id === primary.id || fallback.forward_udp || !sameDestination(primary, fallback)) {
     throw new Error("Fallback must be a separate lane reaching the same destination from the same connector");
   }
   const hostname = body.tls_server_name;
   if (typeof hostname !== "string" || !hostname.includes(".") || !/[a-z]/i.test(hostname) || !validTunnelHost(hostname)) {
     throw new Error("Provide the destination's TLS server name");
   }
-  return { cluster_id: cluster, address: addressOf(node), port, lane_id: primary.id, primary: primary.listener_port,
-    fallback_lane_id: fallback.id, fallback: fallback.listener_port, tls_server_name: hostname };
+  return { ...route, fallback_lane_id: fallback.id, fallback: fallback.listener_port, tls_server_name: hostname };
 }
 
 function selectFallback(body: Record<string, unknown>, primary: string, original?: IngressRoute) {
@@ -130,13 +141,10 @@ export async function saveIngress(env: Env, cluster: string, body: Record<string
   }
   const original = routes.find((route) => route.port === port);
   if (original && original.cluster_id !== cluster) throw new Error("Public port belongs to a different cluster");
-  if (body.action !== "set") throw new Error("Unknown public ingress action");
-  document.public_ingress = routes.filter((route) => route.port !== port);
-  await checkPublicClaim(env, node, document, port);
-  document.public_ingress.push(await desiredRoute(env, cluster, node, port, body, original));
+  await changeIngress(env, cluster, node, document, port, body, original);
   const encoded = JSON.stringify(document);
-  if (document.public_ingress.length > 16 || new TextEncoder().encode(encoded).byteLength > MAX_MANIFEST_BYTES) {
-    throw new Error("Public ingress or document size limit exceeded");
+  if (new TextEncoder().encode(encoded).byteLength > MAX_MANIFEST_BYTES) {
+    throw new Error("Server document size limit exceeded");
   }
   const result = await env.DB.prepare(
     `UPDATE node_documents SET manifest_json=?, revision=revision+1, updated_at=?
@@ -146,4 +154,20 @@ export async function saveIngress(env: Env, cluster: string, body: Record<string
   ).bind(encoded, now(), node.id, revision, cluster).run();
   if (result.meta.changes !== 1) throw new Error("Server configuration changed; reload before updating public ingress");
   return { revision: revision + 1 };
+}
+
+async function changeIngress(env: Env, cluster: string, node: ListenerNode, document: IngressDocument,
+  port: number, body: Record<string, unknown>, original?: IngressRoute) {
+  const routes = document.public_ingress ?? [];
+  document.public_ingress = routes.filter((route) => route.port !== port);
+  if (body.action === "remove") {
+    if (!original) throw new Error("Public port mapping not found");
+    return;
+  }
+  if (body.action !== "set") throw new Error("Unknown public ingress action");
+  if (!node.public_forward_v2 && !original && routes.length >= 16) {
+    throw new Error("Upgrade this agent before adding more than 16 public ports");
+  }
+  await checkPublicClaim(env, node, document, port);
+  document.public_ingress.push(await desiredRoute(env, cluster, node, port, body, original));
 }

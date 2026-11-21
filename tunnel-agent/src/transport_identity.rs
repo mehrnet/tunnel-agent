@@ -19,6 +19,8 @@ pub(crate) struct TransportKeys {
     pub(crate) rathole: Option<String>,
     #[serde(default)]
     pub(crate) kernel_ingress: bool,
+    #[serde(default)]
+    pub(crate) public_forward_v2: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -86,6 +88,7 @@ pub(crate) fn provision(bundle: &Path, state: &Path) -> TransportKeys {
         hpnssh,
         rathole,
         kernel_ingress: crate::ingress::available(),
+        public_forward_v2: true,
     }
 }
 

@@ -2,6 +2,7 @@ import { MAX_MANIFEST_BYTES } from "./documents";
 import type { Env } from "./models";
 import { managedContracts } from "./managed-transport";
 import { wstunnelContracts, type Intent } from "./tunnel-spec";
+import { parseTransportKeys } from "./transport-keys";
 import { now } from "./validation";
 
 interface Endpoint {
@@ -43,7 +44,7 @@ export type ManagedLane = Omit<Intent, "path_key" | "cluster_id"> & {
 export async function managedLanes(env: Env, clusterId: string): Promise<ManagedLane[]> {
   const rows = await env.DB.prepare(
     `SELECT id,source_node_id,listener_node_id,transport,direction,listener_type,listener_bind,listener_port,control_port,tls_server_name,
-     destination_host,destination_port,enabled,revision,updated_at FROM tunnel_intents
+     destination_host,destination_port,forward_udp,enabled,revision,updated_at FROM tunnel_intents
      WHERE cluster_id=? AND path_key IS NOT NULL ORDER BY created_at,id`,
   ).bind(clusterId).all<ManagedLane>();
   return rows.results;
@@ -61,7 +62,15 @@ async function endpoints(env: Env, intent: Intent) {
   const listener = results.find((row) => row.id === intent.listener_node_id);
   if (!source || !listener || !listener.address) throw new Error("Both servers must belong to this cluster and the listener needs an address");
   if (intent.enabled && results.some((row) => row.status !== "enrolled")) throw new Error("Both servers must be enrolled before enabling");
+  if (intent.enabled && intent.forward_udp && ![source, listener].every(supportsDualForward)) {
+    throw new Error("Both servers must report support for TCP+UDP forwarding before enabling");
+  }
   return { source, listener, host: listener.address };
+}
+
+function supportsDualForward(row: Endpoint) {
+  return (row.sampled_at ?? 0) >= now() - 300
+    && parseTransportKeys(JSON.parse(row.transport_keys_json ?? "null"))?.public_forward_v2 === true;
 }
 
 function manifest(row: Endpoint, id: string): Manifest {
@@ -130,10 +139,11 @@ function pairWrite(env: Env, intent: Intent, source: Endpoint, listener: Endpoin
 function insertIntent(env: Env, intent: Intent, time: number) {
   return env.DB.prepare(
     `INSERT INTO tunnel_intents(id,cluster_id,source_node_id,peer_node_id,transport,direction,listener_type,
-      listener_node_id,listener_bind,listener_port,control_port,tls_server_name,path_key,destination_host,destination_port,enabled,created_at,updated_at)
-     VALUES(?,?,?,?,?,'reverse',?,?,'127.0.0.1',?,?,?,?,?,?,CASE WHEN changes()=2 THEN 0 ELSE NULL END,?,?)`,
+      listener_node_id,listener_bind,listener_port,control_port,tls_server_name,path_key,destination_host,destination_port,forward_udp,enabled,created_at,updated_at)
+     VALUES(?,?,?,?,?,'reverse',?,?,'127.0.0.1',?,?,?,?,?,?,?,CASE WHEN changes()=2 THEN 0 ELSE NULL END,?,?)`,
   ).bind(intent.id, intent.cluster_id, intent.source_node_id, intent.listener_node_id, intent.transport, intent.listener_type, intent.listener_node_id,
-    intent.listener_port, intent.control_port, intent.tls_server_name, intent.path_key, intent.destination_host, intent.destination_port, time, time);
+    intent.listener_port, intent.control_port, intent.tls_server_name, intent.path_key,
+    intent.destination_host, intent.destination_port, intent.forward_udp, time, time);
 }
 
 function updateIntent(env: Env, intent: Intent, time: number) {
@@ -154,7 +164,7 @@ export async function reconcileTunnel(env: Env, intent: Intent, operation: "crea
   if (operation !== "remove") {
     await reservePorts(env, intent);
     checkPorts(listenerDoc, intent);
-    const pair = intent.transport === "wstunnel" ? wstunnelContracts(intent, host)
+    const pair = intent.transport === "wstunnel" ? !intent.forward_udp || intent.enabled ? wstunnelContracts(intent, host) : null
       : intent.enabled ? managedContracts(intent, source, listener) : null;
     if (pair) {
       sourceDoc.tunnels.push(pair.client);

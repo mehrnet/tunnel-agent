@@ -129,6 +129,7 @@ fn rejects_listener_collisions_between_contracts() {
             tls_private_key: PathBuf::from("key.pem"),
             path_prefix: "/tunnel".to_owned(),
             worker_threads: 1,
+            fixed_reverse_port: None,
             restart: RestartPolicy::default(),
         })
     };

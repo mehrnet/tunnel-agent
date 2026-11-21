@@ -79,9 +79,8 @@ fn compile_tunnel(
             compilation.processes.push(compile_hpn_server(spec, binary));
         }
         TunnelSpec::WstunnelServer(spec) => {
-            compilation
-                .processes
-                .push(compile_wstunnel_server(spec, binary));
+            let process = compile_wstunnel_server(spec, binary, state_dir, compilation);
+            compilation.processes.push(process);
             compilation.listeners.push(ListenerClaim {
                 owner: spec.id.clone(),
                 bind: spec.listener.bind.clone(),
@@ -196,8 +195,13 @@ fn append_forward_option(argv: &mut Vec<String>, spec: &HpnSshForward) {
     }
 }
 
-fn compile_wstunnel_server(spec: &WstunnelServer, binary: &Path) -> ProcessSpec {
-    ProcessSpec {
+fn compile_wstunnel_server(
+    spec: &WstunnelServer,
+    binary: &Path,
+    state: &Path,
+    compilation: &mut TunnelCompilation,
+) -> ProcessSpec {
+    let mut process = ProcessSpec {
         id: spec.id.clone(),
         argv: vec![
             binary.display().to_string(),
@@ -206,18 +210,49 @@ fn compile_wstunnel_server(spec: &WstunnelServer, binary: &Path) -> ProcessSpec 
             "WARN".to_owned(),
             "--nb-worker-threads".to_owned(),
             spec.worker_threads.to_string(),
-            "--restrict-http-upgrade-path-prefix".to_owned(),
-            wstunnel_prefix(&spec.id, &spec.path_prefix),
             "--tls-certificate".to_owned(),
             spec.tls_certificate.display().to_string(),
             "--tls-private-key".to_owned(),
             spec.tls_private_key.display().to_string(),
-            format!("wss://{}:{}", spec.listener.bind, spec.listener.port),
         ],
         env: BTreeMap::new(),
         workdir: None,
         restart: spec.restart.clone(),
+    };
+    if let Some(port) = spec.fixed_reverse_port {
+        let prefix = wstunnel_prefix(&spec.id, &spec.path_prefix);
+        let path = state
+            .join("generated")
+            .join(format!("{}-wstunnel.yaml", spec.id));
+        compilation.generated_files.push(GeneratedFile {
+            path: path.clone(),
+            content: format!(
+                "restrictions:\n  - name: fixed-reverse\n    match:\n      - !PathPrefix \"^{prefix}$\"\n    allow:\n      - !ReverseTunnel\n        protocol: [Tcp, Udp]\n        port: [{port}]\n        cidr: [127.0.0.1/32]\n"
+            ),
+        });
+        compilation.listeners.push(ListenerClaim {
+            owner: spec.id.clone(),
+            bind: "127.0.0.1".to_owned(),
+            port,
+        });
+        process
+            .argv
+            .extend(["--restrict-config".to_owned(), path.display().to_string()]);
+        process.env.insert(
+            "TOKIO_WORKER_THREADS".to_owned(),
+            spec.worker_threads.to_string(),
+        );
+    } else {
+        process.argv.extend([
+            "--restrict-http-upgrade-path-prefix".to_owned(),
+            wstunnel_prefix(&spec.id, &spec.path_prefix),
+        ]);
     }
+    process.argv.push(format!(
+        "wss://{}:{}",
+        spec.listener.bind, spec.listener.port
+    ));
+    process
 }
 
 fn compile_wstunnel_reverse(spec: &WstunnelReverse, binary: &Path) -> ProcessSpec {
@@ -242,12 +277,23 @@ fn compile_wstunnel_reverse(spec: &WstunnelReverse, binary: &Path) -> ProcessSpe
         "15s".to_owned(),
         "--remote-to-local".to_owned(),
         listener,
-        spec.endpoint.url.clone(),
     ]);
+    let mut env = BTreeMap::new();
+    if spec.forward_udp {
+        argv.extend([
+            "--remote-to-local".to_owned(),
+            render_wstunnel_fixed(spec, "udp"),
+        ]);
+        env.insert(
+            "TOKIO_WORKER_THREADS".to_owned(),
+            spec.worker_threads.to_string(),
+        );
+    }
+    argv.push(spec.endpoint.url.clone());
     ProcessSpec {
         id: spec.id.clone(),
         argv,
-        env: BTreeMap::new(),
+        env,
         workdir: None,
         restart: spec.restart.clone(),
     }
@@ -266,18 +312,20 @@ fn render_wstunnel_listener(spec: &WstunnelReverse) -> String {
             "socks5://{}:{}",
             spec.remote_listener.bind, spec.remote_listener.port
         ),
-        TunnelListenerScheme::Tcp => {
-            let target = spec
-                .remote_listener
-                .target
-                .as_ref()
-                .expect("validated TCP target");
-            format!(
-                "tcp://{}:{}:{}:{}",
-                spec.remote_listener.bind, spec.remote_listener.port, target.host, target.port
-            )
-        }
+        TunnelListenerScheme::Tcp => render_wstunnel_fixed(spec, "tcp"),
     }
+}
+
+fn render_wstunnel_fixed(spec: &WstunnelReverse, protocol: &str) -> String {
+    let target = spec
+        .remote_listener
+        .target
+        .as_ref()
+        .expect("validated fixed target");
+    format!(
+        "{protocol}://{}:{}:{}:{}",
+        spec.remote_listener.bind, spec.remote_listener.port, target.host, target.port
+    )
 }
 
 fn compile_rathole(

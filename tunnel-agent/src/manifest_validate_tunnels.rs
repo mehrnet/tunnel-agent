@@ -71,6 +71,14 @@ fn validate_wstunnel_server(spec: &WstunnelServer) -> Result<(), String> {
         ));
     }
     validate_wstunnel_path(&spec.path_prefix, &spec.id)?;
+    if let Some(port) = spec.fixed_reverse_port
+        && (port < 1024 || port == spec.listener.port || !spec.id.starts_with("owned-"))
+    {
+        return Err(format!(
+            "tunnel {:?} has an invalid fixed reverse port",
+            spec.id
+        ));
+    }
     validate_worker_threads(spec.worker_threads, &spec.id)
 }
 
@@ -79,6 +87,15 @@ fn validate_wstunnel_reverse(spec: &WstunnelReverse) -> Result<(), String> {
     validate_wstunnel_endpoint(&spec.endpoint, &spec.id)?;
     validate_tunnel_listener(&spec.remote_listener, &spec.id)?;
     validate_worker_threads(spec.worker_threads, &spec.id)?;
+    if spec.forward_udp
+        && (!matches!(spec.remote_listener.scheme, TunnelListenerScheme::Tcp)
+            || spec.remote_listener.bind != "127.0.0.1")
+    {
+        return Err(format!(
+            "tunnel {:?} UDP forwarding requires a fixed loopback listener",
+            spec.id
+        ));
+    }
     match spec.remote_listener.scheme {
         TunnelListenerScheme::Socks5 if spec.remote_listener.target.is_some() => Err(format!(
             "tunnel {:?} SOCKS listener cannot define target",
