@@ -6,13 +6,13 @@ export const MAX_MANIFEST_BYTES = 256 * 1024;
 
 const ROOT_FIELDS = new Set(["version", "node_scope", "bundle", "agent", "tunnels"]);
 const AGENT_FIELDS = new Set(["config_poll_interval_secs", "poll_interval_secs", "max_active_lanes", "lanes", "bundle_seed"]);
+const AGENT_TRANSPORTS = new Set(["hpnssh", "wstunnel", "rathole"]);
 const CONTRACTS = new Set([
   "hpnssh.forward.v1",
   "hpnssh.server.v1",
   "wstunnel.server.v1",
   "wstunnel.reverse.v1",
   "rathole.service.v1",
-  "trusttunnel.endpoint.v1",
 ]);
 const PROTECTED_FIELDS = new Set([
   "access_key",
@@ -88,12 +88,23 @@ function validateRoot(value: Record<string, unknown>, node: NodeRow): void {
   for (const field of Object.keys(value.agent)) {
     if (!AGENT_FIELDS.has(field)) throw new Error(`manifest agent field ${field} is not allowed`);
   }
+  validateAgentLanes(value.agent.lanes);
   const configPoll = value.agent.config_poll_interval_secs;
   if (configPoll !== undefined && (typeof configPoll !== "number" || !Number.isInteger(configPoll) || configPoll < 5 || configPoll > 3600)) {
     throw new Error("agent.config_poll_interval_secs must be between 5 and 3600");
   }
   if (!Array.isArray(value.tunnels)) throw new Error("manifest tunnels must be an array");
   for (const tunnel of value.tunnels) validateTunnel(tunnel);
+}
+
+function validateAgentLanes(value: unknown): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) throw new Error("manifest agent.lanes must be an array");
+  for (const lane of value) {
+    if (!isRecord(lane) || typeof lane.transport !== "string" || !AGENT_TRANSPORTS.has(lane.transport)) {
+      throw new Error("each management lane requires a supported transport");
+    }
+  }
 }
 
 function validateTunnel(value: unknown): void {

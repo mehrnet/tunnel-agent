@@ -23,12 +23,23 @@ fn spawn_child(spec: &ProcessSpec) -> std::io::Result<Child> {
         .stderr(Stdio::null())
         .process_group(0)
         .kill_on_drop(false);
+    if spec.id.starts_with("agent-lane-") {
+        for key in [
+            "HTTP_PROXY",
+            "http_proxy",
+            "WSTUNNEL_HTTP_PROXY_LOGIN",
+            "WSTUNNEL_HTTP_PROXY_PASSWORD",
+            "WSTUNNEL_HTTP_UPGRADE_PATH_PREFIX",
+        ] {
+            command.env_remove(key);
+        }
+    }
     if let Some(workdir) = &spec.workdir {
         command.current_dir(workdir);
     }
     #[cfg(test)]
     if std::env::var_os("TUNNEL_TEST_WORKER_LOGS").is_some() {
-        command.stderr(Stdio::inherit());
+        command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
     }
     command.spawn()
 }
@@ -177,7 +188,7 @@ fn references_path(spec: &ProcessSpec, path: &Path) -> bool {
 pub(crate) async fn reconcile_plan(
     running: &mut RunningPlan,
     plan: CompiledPlan,
-    restart_management: bool,
+    force_restart: &[String],
 ) {
     let next_files = files_by_path(plan.generated_files);
     let changed_paths: Vec<_> = running
@@ -189,9 +200,7 @@ pub(crate) async fn reconcile_plan(
     let mut previous = std::mem::take(&mut running.processes);
     let mut replacements = Vec::new();
     for spec in plan.processes {
-        let management_changed = restart_management
-            && (spec.id.starts_with("agent-lane-") || spec.id.starts_with("agent-seed-"));
-        if !management_changed
+        if !force_restart.contains(&spec.id)
             && !changed_paths
                 .iter()
                 .any(|path| references_path(&spec, path))

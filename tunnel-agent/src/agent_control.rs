@@ -58,24 +58,19 @@ pub(crate) fn prepare(
     }
     let mut keys = HashMap::new();
     for lane in active_clients(config) {
-        let client_spec = lane.hpnssh.client.as_ref().expect("validated agent client");
+        let Some(hpn) = &lane.hpnssh else { continue };
+        let client_spec = hpn.client.as_ref().expect("validated agent client");
         write_file(
             Path::new(&client_spec.known_hosts_file),
             &client_spec.known_host,
             0o644,
         )?;
-        if !keys.contains_key(&lane.hpnssh.cluster_id) {
-            let key = fetch_control_key(
-                client,
-                api_url,
-                node_id,
-                node_token,
-                &lane.hpnssh.cluster_id,
-            )?;
-            keys.insert(lane.hpnssh.cluster_id.clone(), key);
+        if !keys.contains_key(&hpn.cluster_id) {
+            let key = fetch_control_key(client, api_url, node_id, node_token, &hpn.cluster_id)?;
+            keys.insert(hpn.cluster_id.clone(), key);
         }
         let key = keys
-            .get(&lane.hpnssh.cluster_id)
+            .get(&hpn.cluster_id)
             .expect("inserted cluster control key");
         write_file(Path::new(&client_spec.identity_file), key, 0o600)?;
     }

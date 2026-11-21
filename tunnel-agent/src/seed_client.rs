@@ -1,4 +1,4 @@
-use std::{fs::OpenOptions, path::Path, time::Duration};
+use std::{fs::OpenOptions, io::Read, path::Path, time::Duration};
 
 use reqwest::{StatusCode, blocking::Client, redirect::Policy};
 
@@ -10,20 +10,17 @@ pub(crate) struct SeedSource {
 
 impl SeedSource {
     pub(crate) fn new(base: &str) -> Result<Self, String> {
-        Self::build(base, None)
+        Self::with_timeout(base, Duration::from_secs(300))
     }
 
     pub(crate) fn with_timeout(base: &str, timeout: Duration) -> Result<Self, String> {
-        Self::build(base, Some(timeout))
-    }
-
-    fn build(base: &str, timeout: Option<Duration>) -> Result<Self, String> {
         let url = reqwest::Url::parse(base).map_err(|_| "seed source URL is invalid".to_owned())?;
         if url.scheme() != "http"
-            || !matches!(url.host_str(), Some("127.0.0.1") | Some("::1"))
+            || !matches!(url.host_str(), Some("127.0.0.1") | Some("[::1]"))
             || url.port().is_none()
             || url.path() != "/"
             || url.query().is_some()
+            || url.fragment().is_some()
             || !url.username().is_empty()
             || url.password().is_some()
         {
@@ -32,14 +29,11 @@ impl SeedSource {
         let client = Client::builder()
             .redirect(Policy::none())
             // Seed traffic is confined to the explicitly mapped management lane.
-            .no_proxy();
-        let client = if let Some(timeout) = timeout {
-            client.timeout(timeout)
-        } else {
-            client
-        }
-        .build()
-        .map_err(|error| format!("cannot build seed client: {error}"))?;
+            .no_proxy()
+            .connect_timeout(Duration::from_secs(3))
+            .timeout(timeout)
+            .build()
+            .map_err(|error| format!("cannot build seed client: {error}"))?;
         Ok(Self {
             base: base.trim_end_matches('/').to_owned(),
             client,
@@ -65,13 +59,15 @@ impl SeedSource {
         {
             return Err("seed response exceeds the maximum size".to_owned());
         }
-        let body = response
-            .bytes()
+        let mut body = Vec::new();
+        response
+            .take(limit + 1)
+            .read_to_end(&mut body)
             .map_err(|error| format!("cannot read seed response: {error}"))?;
         if body.len() as u64 > limit {
             return Err("seed response exceeds the maximum size".to_owned());
         }
-        Ok(body.to_vec())
+        Ok(body)
     }
 
     pub(crate) fn get_file(

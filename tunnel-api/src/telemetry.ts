@@ -8,7 +8,7 @@ import { recordTelemetry } from "./telemetry-store";
 import { parseTransportKeys, type TransportKeys } from "./transport-keys";
 import { now } from "./validation";
 
-const MAX_LANES = 16;
+const MAX_LANES = 64;
 const MAX_REPORTS = 64;
 const MAX_FUTURE_SECONDS = 300;
 const MAX_RATE = 10_000_000_000;

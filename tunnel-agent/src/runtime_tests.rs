@@ -117,8 +117,8 @@ async fn worker_lifecycle_over_live_wstunnel() {
         ("edited", "secondary"),
     ] {
         let (server, client) = phase_plans(&root, phase, &management);
-        reconcile_plan(&mut listener, server, false).await;
-        reconcile_plan(&mut connector, client, false).await;
+        reconcile_plan(&mut listener, server, &[]).await;
+        reconcile_plan(&mut connector, client, &[]).await;
         timeout(Duration::from_secs(20), async {
             loop {
                 if probe().await.as_deref() == Some(expected) {
@@ -136,8 +136,8 @@ async fn worker_lifecycle_over_live_wstunnel() {
     }
     for phase in ["disabled", "removed"] {
         let (server, client) = phase_plans(&root, phase, &management);
-        reconcile_plan(&mut connector, client, false).await;
-        reconcile_plan(&mut listener, server, false).await;
+        reconcile_plan(&mut connector, client, &[]).await;
+        reconcile_plan(&mut listener, server, &[]).await;
         assert_eq!(probe().await, None, "traffic continued after {phase}");
         assert!(
             alive(management_pid),
@@ -171,14 +171,14 @@ async fn lane_lifecycle_keeps_management_and_unrelated_workers_running() {
     };
     let next = plan(all.clone(), vec![generated.clone()]);
     manifest::write_generated_files(&next).unwrap();
-    reconcile_plan(&mut running, next, false).await;
+    reconcile_plan(&mut running, next, &[]).await;
     let initial_pid = started(&root, &lane.id, None).await;
 
     all[3] = updated;
     reconcile_plan(
         &mut running,
         plan(all.clone(), vec![generated.clone()]),
-        false,
+        &[],
     )
     .await;
     let edited_pid = started(&root, &lane.id, Some(initial_pid)).await;
@@ -187,13 +187,13 @@ async fn lane_lifecycle_keeps_management_and_unrelated_workers_running() {
     generated.content = "new-generation".to_owned();
     let next = plan(all, vec![generated]);
     manifest::write_generated_files(&next).unwrap();
-    reconcile_plan(&mut running, next, false).await;
+    reconcile_plan(&mut running, next, &[]).await;
     let restarted_pid = started(&root, &lane.id, Some(edited_pid)).await;
     assert!(!alive(edited_pid));
 
-    reconcile_plan(&mut running, plan(base.clone(), vec![]), false).await;
+    reconcile_plan(&mut running, plan(base.clone(), vec![]), &[]).await;
     assert!(!alive(restarted_pid));
-    reconcile_plan(&mut running, plan(base, vec![]), false).await;
+    reconcile_plan(&mut running, plan(base, vec![]), &[]).await;
     for (id, pid) in [
         (management.id, management_pid),
         (seed.id, seed_pid),

@@ -2,8 +2,8 @@ use std::collections::HashSet;
 
 use super::{
     HpnDirection, HpnSshForward, HpnSshServer, Listener, RatholeRole, RatholeService,
-    RatholeTransportKind, SshPeer, TcpTarget, TrustTunnelEndpoint, TunnelListener,
-    TunnelListenerScheme, TunnelSpec, WstunnelEndpoint, WstunnelReverse, WstunnelServer,
+    RatholeTransportKind, SshPeer, TcpTarget, TunnelListener, TunnelListenerScheme, TunnelSpec,
+    WstunnelEndpoint, WstunnelReverse, WstunnelServer,
     manifest_validate::{validate_id, validate_restart},
 };
 
@@ -27,7 +27,6 @@ pub(super) fn validate_tunnel(
         TunnelSpec::WstunnelServer(spec) => validate_wstunnel_server(spec)?,
         TunnelSpec::WstunnelReverse(spec) => validate_wstunnel_reverse(spec)?,
         TunnelSpec::RatholeService(spec) => validate_rathole(spec)?,
-        TunnelSpec::TrustTunnelEndpoint(spec) => validate_trusttunnel(spec)?,
     }
     Ok(())
 }
@@ -95,20 +94,6 @@ fn validate_wstunnel_reverse(spec: &WstunnelReverse) -> Result<(), String> {
 fn validate_worker_threads(worker_threads: u16, id: &str) -> Result<(), String> {
     if worker_threads == 0 {
         return Err(format!("tunnel {id:?} worker_threads must be positive"));
-    }
-    Ok(())
-}
-
-fn validate_trusttunnel(spec: &TrustTunnelEndpoint) -> Result<(), String> {
-    validate_restart(&spec.id, &spec.restart)?;
-    if spec.settings_file.as_os_str().is_empty() || spec.tls_hosts_file.as_os_str().is_empty() {
-        return Err(format!(
-            "tunnel {:?} requires settings_file and tls_hosts_file",
-            spec.id
-        ));
-    }
-    if spec.jobs == Some(0) {
-        return Err(format!("tunnel {:?} jobs must be positive", spec.id));
     }
     Ok(())
 }

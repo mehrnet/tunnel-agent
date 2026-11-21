@@ -19,7 +19,7 @@ use crate::{
     tunnel_probes,
 };
 
-const MAX_LANES: usize = 16;
+const MAX_LANES: usize = agent_spec::MAX_LANES;
 const MAX_RELAY_REPORTS: usize = 64;
 const MAX_TELEMETRY_BYTES: usize = 16_384;
 const MAX_RATE: u64 = 10_000_000_000;
@@ -167,6 +167,7 @@ pub(crate) fn send_domestic(
     let endpoint = format!("{}/v1/telemetry/{node_id}", source.trim_end_matches('/'));
     let client = Client::builder()
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(10))
         .build()
@@ -304,12 +305,14 @@ pub(crate) fn probe_tcp(
 
 fn lane_endpoint(lane: &AgentLane) -> Option<String> {
     match lane.role {
-        AgentLaneRole::Server => lane
-            .hpnssh
-            .server
-            .as_ref()
-            .map(|server| format!("127.0.0.1:{}", server.port)),
-        AgentLaneRole::Client => Some(format!("{}:{}", lane.peer.host, lane.peer.port)),
+        AgentLaneRole::Server => Some(crate::agent_lane::authority(
+            &lane.listener.bind,
+            lane.listener.port,
+        )),
+        AgentLaneRole::Client => Some(crate::agent_lane::authority(
+            &lane.peer.host,
+            lane.peer.port,
+        )),
     }
 }
 

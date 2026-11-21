@@ -6,8 +6,8 @@ use std::{
 
 use super::{
     GeneratedFile, HpnDirection, HpnSshForward, HpnSshServer, ListenerClaim, ProcessSpec,
-    RatholeRole, RatholeService, RatholeTransportKind, TrustTunnelEndpoint, TrustTunnelLogLevel,
-    TunnelListenerScheme, TunnelSpec, WstunnelReverse, WstunnelServer,
+    RatholeRole, RatholeService, RatholeTransportKind, TunnelListenerScheme, TunnelSpec,
+    WstunnelReverse, WstunnelServer,
 };
 
 pub(super) struct TunnelCompilation {
@@ -95,11 +95,6 @@ fn compile_tunnel(
         }
         TunnelSpec::RatholeService(spec) => {
             compile_rathole(spec, binary, state_dir, compilation)?;
-        }
-        TunnelSpec::TrustTunnelEndpoint(spec) => {
-            compilation
-                .processes
-                .push(compile_trusttunnel_endpoint(spec, binary));
         }
     }
     Ok(())
@@ -335,30 +330,6 @@ fn add_rathole_server_listeners(
     Ok(())
 }
 
-fn compile_trusttunnel_endpoint(spec: &TrustTunnelEndpoint, binary: &Path) -> ProcessSpec {
-    let mut argv = vec![
-        binary.display().to_string(),
-        spec.settings_file.display().to_string(),
-        spec.tls_hosts_file.display().to_string(),
-    ];
-    if let Some(level) = spec.log_level {
-        argv.extend([
-            "--loglvl".to_owned(),
-            trust_log_level_name(level).to_owned(),
-        ]);
-    }
-    if let Some(jobs) = spec.jobs {
-        argv.extend(["--jobs".to_owned(), jobs.to_string()]);
-    }
-    ProcessSpec {
-        id: spec.id.clone(),
-        argv,
-        env: BTreeMap::new(),
-        workdir: None,
-        restart: spec.restart.clone(),
-    }
-}
-
 fn render_rathole(spec: &RatholeService) -> String {
     let mut output = render_rathole_control(spec);
     render_rathole_transport(&mut output, spec);
@@ -461,14 +432,6 @@ fn rathole_transport_name(kind: RatholeTransportKind) -> &'static str {
         RatholeTransportKind::Tcp => "tcp",
         RatholeTransportKind::Tls => "tls",
         RatholeTransportKind::Noise => "noise",
-    }
-}
-
-fn trust_log_level_name(level: TrustTunnelLogLevel) -> &'static str {
-    match level {
-        TrustTunnelLogLevel::Info => "info",
-        TrustTunnelLogLevel::Debug => "debug",
-        TrustTunnelLogLevel::Trace => "trace",
     }
 }
 

@@ -11,7 +11,6 @@ env:
   HPN_COMMIT: e2dfa0cea55d93747f4c68b4a2b134d6fbe0db06
   WSTUNNEL_COMMIT: e46489298b0c6aaadb0bb3ca77e5832aa658455c
   RATHOLE_COMMIT: ebb764ae53d7ffe4fcb45f83f7563bec5c74199d
-  TRUSTTUNNEL_COMMIT: 8f51a85793928692bd06834c285ba623cb9511a8
 
 jobs:
   bundle:
@@ -48,8 +47,6 @@ jobs:
           git -C vendor/wstunnel checkout --detach "$WSTUNNEL_COMMIT"
           git clone --filter=blob:none https://github.com/rathole-org/rathole.git vendor/rathole
           git -C vendor/rathole checkout --detach "$RATHOLE_COMMIT"
-          git clone --filter=blob:none https://github.com/TrustTunnel/TrustTunnel.git vendor/trusttunnel
-          git -C vendor/trusttunnel checkout --detach "$TRUSTTUNNEL_COMMIT"
       - name: Build static Rust transports
         shell: bash
         env:
@@ -65,21 +62,18 @@ jobs:
             .
           test -x rust-output/tunnel-agent
           test -x rust-output/wstunnel
-      - name: Build static compatibility transports
+      - name: Build static Rathole
         shell: bash
         env:
           DOCKER_PLATFORM: ${{ matrix.docker_platform }}
-          TUNNEL_AGENT_TARGET: ${{ matrix.target }}
         run: |
           docker buildx build \
             --platform "$DOCKER_PLATFORM" \
-            --file tools/Dockerfile.compat \
-            --build-arg RUST_TARGET="$TUNNEL_AGENT_TARGET" \
+            --file tools/Dockerfile.rathole \
             --target export \
-            --output type=local,dest=trusttunnel-output \
+            --output type=local,dest=rathole-output \
             .
-          test -x trusttunnel-output/trusttunnel_endpoint
-          test -x trusttunnel-output/rathole
+          test -x rathole-output/rathole
       - name: Build static HPNSSH tree
         shell: bash
         run: |
@@ -106,8 +100,7 @@ jobs:
           BUNDLE_TARGET: ${{ matrix.target }}
           TUNNEL_AGENT_BIN: rust-output/tunnel-agent
           WSTUNNEL_BIN: rust-output/wstunnel
-          RATHOLE_BIN: trusttunnel-output/rathole
-          TRUSTTUNNEL_BIN: trusttunnel-output/trusttunnel_endpoint
+          RATHOLE_BIN: rathole-output/rathole
           HPNSSH_PREFIX: hpn-output/hpnssh
           BUNDLE_OUTPUT_DIR: release
         run: |
@@ -121,16 +114,14 @@ jobs:
           test -x hpn-output/hpnssh/bin/hpnssh
           test -x hpn-output/hpnssh/sbin/hpnsshd
           test -x rust-output/wstunnel
-          test -x trusttunnel-output/rathole
-          test -x trusttunnel-output/trusttunnel_endpoint
+          test -x rathole-output/rathole
       - name: Verify transport binaries are fully static
         shell: bash
         run: |
           for binary in \
             rust-output/tunnel-agent \
             rust-output/wstunnel \
-            trusttunnel-output/rathole \
-            trusttunnel-output/trusttunnel_endpoint \
+            rathole-output/rathole \
             hpn-output/hpnssh/bin/hpnssh \
             hpn-output/hpnssh/sbin/hpnsshd
           do

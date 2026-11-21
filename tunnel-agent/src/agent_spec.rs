@@ -5,8 +5,8 @@ pub use crate::agent_lane::{AgentLane, AgentLanePlan};
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 60;
 const DEFAULT_CONFIG_POLL_INTERVAL_SECS: u64 = 5;
 const DEFAULT_MAX_ACTIVE_LANES: u8 = 1;
-const DEFAULT_BUNDLE_POLL_INTERVAL_SECS: u64 = 300;
-const MAX_LANES: usize = 16;
+pub(crate) const DEFAULT_BUNDLE_POLL_INTERVAL_SECS: u64 = 300;
+pub(crate) const MAX_LANES: usize = 64;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -52,6 +52,45 @@ impl AgentSpec {
     pub fn lanes_changed(&self, other: &Self) -> bool {
         self.max_active_lanes != other.max_active_lanes || self.lanes != other.lanes
     }
+
+    pub(crate) fn changed_credentials(&self, next: &Self) -> Vec<String> {
+        next.lanes
+            .iter()
+            .filter(|lane| {
+                self.lanes
+                    .iter()
+                    .any(|previous| previous.id == lane.id && previous.hpnssh != lane.hpnssh)
+            })
+            .map(|lane| format!("agent-lane-{}", lane.id))
+            .collect()
+    }
+
+    pub(crate) fn retain_startable_lanes(
+        &mut self,
+        keys: &crate::transport_identity::TransportKeys,
+    ) {
+        let selected: std::collections::HashSet<_> = selected_lanes(self)
+            .into_iter()
+            .filter(|lane| lane.selected)
+            .map(|lane| lane.id)
+            .collect();
+        // A rotated local Noise key must not prevent a healthy management lane from starting.
+        self.lanes.retain(|lane| {
+            if !selected.contains(&lane.id) {
+                return false;
+            }
+            if let Some(spec) = &lane.rathole
+                && keys.rathole.as_deref() != Some(spec.local_key.as_str())
+            {
+                eprintln!(
+                    "skipping management lane {} until its local Rathole identity is reconciled",
+                    lane.id
+                );
+                return false;
+            }
+            true
+        });
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -61,7 +100,6 @@ pub enum AgentTransport {
     HpnSsh,
     Wstunnel,
     Rathole,
-    Trusttunnel,
 }
 
 impl AgentTransport {
@@ -70,7 +108,6 @@ impl AgentTransport {
             Self::HpnSsh => "hpnssh",
             Self::Wstunnel => "wstunnel",
             Self::Rathole => "rathole",
-            Self::Trusttunnel => "trusttunnel",
         }
     }
 }

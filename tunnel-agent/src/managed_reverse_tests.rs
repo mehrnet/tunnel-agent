@@ -136,7 +136,7 @@ async fn manages_live_tcp_forwarding_and_closes_listeners_on_disable() {
     runtime::reconcile_plan(
         &mut server,
         manifest::compile(&disabled, &server_state).unwrap(),
-        false,
+        &[],
     )
     .await;
     let closed = wait_for_closed(address).await;

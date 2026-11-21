@@ -2,7 +2,11 @@ mod agent;
 mod agent_control;
 mod agent_lane;
 mod agent_poll;
+mod agent_relays;
 mod agent_spec;
+mod agent_transports;
+#[cfg(test)]
+mod agent_transports_live_tests;
 mod capsule;
 mod foreign_update;
 mod hpn_server_worker;

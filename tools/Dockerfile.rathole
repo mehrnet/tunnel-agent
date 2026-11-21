@@ -1,0 +1,23 @@
+# Rathole v0.5.0 pins time 0.3.29, which predates the type-inference changes
+# in newer Rust. Keep this build on a compatible static toolchain.
+
+FROM rust:1.79-alpine3.20 AS rathole
+
+RUN apk add --no-cache \
+    binutils \
+    build-base \
+    linux-headers \
+    openssl-dev \
+    openssl-libs-static \
+    pkgconf \
+    zlib-static
+
+WORKDIR /src/rathole
+COPY vendor/rathole /src/rathole
+
+RUN OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 \
+      cargo build --locked --release \
+    && strip --strip-unneeded target/release/rathole
+
+FROM scratch AS export
+COPY --from=rathole /src/rathole/target/release/rathole /rathole

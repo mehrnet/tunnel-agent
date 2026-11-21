@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 use crate::{
     agent_spec::{AgentDirection, AgentListener, AgentPeer, AgentTransport},
+    agent_transports::{self, RatholeLane, WstunnelLane},
     identity::valid_uuid,
     manifest::{GeneratedFile, ListenerClaim, NodeScope, ProcessSpec, RestartPolicy},
 };
@@ -20,7 +21,9 @@ pub struct AgentLane {
     pub priority: u16,
     pub peer: AgentPeer,
     pub listener: AgentListener,
-    pub hpnssh: HpnSshLane,
+    pub hpnssh: Option<HpnSshLane>,
+    pub rathole: Option<RatholeLane>,
+    pub wstunnel: Option<WstunnelLane>,
     #[serde(default)]
     pub restart: RestartPolicy,
 }
@@ -79,34 +82,54 @@ pub struct AgentLanePlan {
     pub listener: AgentListener,
 }
 
+pub(crate) type LaneCompilation = (Vec<ProcessSpec>, Vec<GeneratedFile>, Vec<ListenerClaim>);
+
+impl AgentLane {
+    pub(crate) fn seed_target(&self) -> Option<&AgentTarget> {
+        match self.transport {
+            AgentTransport::HpnSsh => self
+                .hpnssh
+                .as_ref()?
+                .client
+                .as_ref()
+                .map(|client| &client.target),
+            AgentTransport::Rathole => self.rathole.as_ref()?.target.as_ref(),
+            AgentTransport::Wstunnel => self.wstunnel.as_ref()?.target.as_ref(),
+        }
+    }
+}
+
 pub fn validate(lane: &AgentLane, scope: NodeScope) -> Result<(), String> {
     validate_id(&lane.id)?;
     validate_peer(&lane.peer, &lane.id)?;
     validate_listener(&lane.listener, &lane.id)?;
     validate_restart(&lane.restart, &lane.id)?;
-    if lane.transport != AgentTransport::HpnSsh {
-        return Err(format!(
-            "agent lane {:?} transport is not implemented",
-            lane.id
-        ));
-    }
     if lane.direction != AgentDirection::ForeignToDomestic {
         return Err(format!(
             "agent lane {:?} must use foreign_to_domestic",
             lane.id
         ));
     }
-    if !valid_uuid(&lane.hpnssh.cluster_id) {
+    if !matches!(
+        (scope, lane.role),
+        (NodeScope::Domestic, AgentLaneRole::Server) | (NodeScope::Foreign, AgentLaneRole::Client)
+    ) {
         return Err(format!(
-            "agent lane {:?} cluster_id must be a UUID",
+            "agent lane {:?} role does not match node_scope",
             lane.id
         ));
     }
-    match (scope, lane.role) {
-        (NodeScope::Domestic, AgentLaneRole::Server) => validate_server(lane),
-        (NodeScope::Foreign, AgentLaneRole::Client) => validate_client(lane),
+    match (lane.transport, &lane.hpnssh, &lane.rathole, &lane.wstunnel) {
+        (AgentTransport::HpnSsh, Some(hpn), None, None) if valid_uuid(&hpn.cluster_id) => {
+            match lane.role {
+                AgentLaneRole::Server => validate_server(lane, hpn),
+                AgentLaneRole::Client => validate_client(lane, hpn),
+            }
+        }
+        (AgentTransport::Rathole, None, Some(rathole), None) => rathole.validate(lane),
+        (AgentTransport::Wstunnel, None, None, Some(wstunnel)) => wstunnel.validate(lane),
         _ => Err(format!(
-            "agent lane {:?} role does not match node_scope",
+            "agent lane {:?} requires exactly its transport settings",
             lane.id
         )),
     }
@@ -114,46 +137,26 @@ pub fn validate(lane: &AgentLane, scope: NodeScope) -> Result<(), String> {
 
 pub fn compile(
     lane: &AgentLane,
-    selected: bool,
     bundle_root: &Path,
     state_dir: &Path,
-) -> (
-    AgentLanePlan,
-    Vec<ProcessSpec>,
-    Vec<GeneratedFile>,
-    Vec<ListenerClaim>,
-) {
-    let plan = AgentLanePlan {
-        id: lane.id.clone(),
-        selected,
-        transport: lane.transport,
-        direction: lane.direction,
-        role: lane.role,
-        priority: lane.priority,
-        peer: lane.peer.clone(),
-        listener: lane.listener.clone(),
-    };
-    if !selected {
-        return (plan, Vec::new(), Vec::new(), Vec::new());
+    check_only: bool,
+) -> Result<LaneCompilation, String> {
+    if let Some(hpn) = &lane.hpnssh {
+        return Ok(match lane.role {
+            AgentLaneRole::Server => compile_server(lane, bundle_root, state_dir, hpn),
+            AgentLaneRole::Client => compile_client(lane, bundle_root, hpn),
+        });
     }
-    match lane.role {
-        AgentLaneRole::Server => compile_server(lane, bundle_root, state_dir, plan),
-        AgentLaneRole::Client => compile_client(lane, bundle_root, state_dir, plan),
-    }
+    agent_transports::compile(lane, bundle_root, state_dir, check_only)
 }
 
 fn compile_server(
     lane: &AgentLane,
     bundle_root: &Path,
     state_dir: &Path,
-    plan: AgentLanePlan,
-) -> (
-    AgentLanePlan,
-    Vec<ProcessSpec>,
-    Vec<GeneratedFile>,
-    Vec<ListenerClaim>,
-) {
-    let server = lane.hpnssh.server.as_ref().expect("validated agent server");
+    hpn: &HpnSshLane,
+) -> LaneCompilation {
+    let server = hpn.server.as_ref().expect("validated agent server");
     let config_path = state_dir
         .join("generated")
         .join(format!("agent-lane-{}.sshd_config", lane.id));
@@ -174,7 +177,7 @@ fn compile_server(
     };
     let generated = GeneratedFile {
         path: config_path,
-        content: render_server_config(server),
+        content: render_server_config(server, &lane.listener),
     };
     let listeners = vec![
         ListenerClaim {
@@ -188,30 +191,23 @@ fn compile_server(
             port: lane.listener.port,
         },
     ];
-    (plan, vec![process], vec![generated], listeners)
+    (vec![process], vec![generated], listeners)
 }
 
-fn compile_client(
-    lane: &AgentLane,
-    bundle_root: &Path,
-    state_dir: &Path,
-    plan: AgentLanePlan,
-) -> (
-    AgentLanePlan,
-    Vec<ProcessSpec>,
-    Vec<GeneratedFile>,
-    Vec<ListenerClaim>,
-) {
-    let client = lane.hpnssh.client.as_ref().expect("validated agent client");
+fn compile_client(lane: &AgentLane, bundle_root: &Path, hpn: &HpnSshLane) -> LaneCompilation {
+    let client = hpn.client.as_ref().expect("validated agent client");
     let forward = format!(
-        "{}:{}:{}:{}",
-        lane.listener.bind, lane.listener.port, client.target.host, client.target.port
+        "{}:{}",
+        authority(&lane.listener.bind, lane.listener.port),
+        authority(&client.target.host, client.target.port)
     );
     let tunnel = ProcessSpec {
         id: format!("agent-lane-{}", lane.id),
         argv: vec![
             bundle_root.join("hpnssh/bin/hpnssh").display().to_string(),
             "-N".to_owned(),
+            "-F".to_owned(),
+            "/dev/null".to_owned(),
             "-o".to_owned(),
             "ExitOnForwardFailure=yes".to_owned(),
             "-o".to_owned(),
@@ -220,6 +216,12 @@ fn compile_client(
             "ServerAliveCountMax=3".to_owned(),
             "-o".to_owned(),
             "StrictHostKeyChecking=yes".to_owned(),
+            "-o".to_owned(),
+            "GlobalKnownHostsFile=/dev/null".to_owned(),
+            "-o".to_owned(),
+            "IdentitiesOnly=yes".to_owned(),
+            "-o".to_owned(),
+            "BatchMode=yes".to_owned(),
             "-o".to_owned(),
             format!("UserKnownHostsFile={}", client.known_hosts_file),
             "-i".to_owned(),
@@ -234,8 +236,18 @@ fn compile_client(
         workdir: None,
         restart: lane.restart.clone(),
     };
+    (vec![tunnel], Vec::new(), Vec::new())
+}
+
+pub(crate) fn compile_seed(
+    target: &AgentTarget,
+    bundle_root: &Path,
+    state_dir: &Path,
+) -> (ProcessSpec, ListenerClaim) {
+    let family = if target.host == "::1" { "v6" } else { "v4" };
+    let id = format!("agent-seed-{family}-{}", target.port);
     let seed = ProcessSpec {
-        id: format!("agent-seed-{}", lane.id),
+        id: id.clone(),
         argv: vec![
             bundle_root.join("bin/tunnel-agent").display().to_string(),
             "seed-serve".to_owned(),
@@ -246,7 +258,7 @@ fn compile_client(
                 .display()
                 .to_string(),
             "--listen".to_owned(),
-            format!("{}:{}", client.target.host, client.target.port),
+            authority(&target.host, target.port),
             "--release-document".to_owned(),
             state_dir
                 .join("release-document.json")
@@ -257,31 +269,35 @@ fn compile_client(
         ],
         env: BTreeMap::new(),
         workdir: None,
-        restart: lane.restart.clone(),
+        restart: RestartPolicy::default(),
     };
-    let listeners = vec![ListenerClaim {
-        owner: format!("agent seed {}", lane.id),
-        bind: client.target.host.clone(),
-        port: client.target.port,
-    }];
-    (plan, vec![tunnel, seed], Vec::new(), listeners)
+    let claim = ListenerClaim {
+        owner: id,
+        bind: target.host.clone(),
+        port: target.port,
+    };
+    (seed, claim)
 }
 
-fn render_server_config(server: &HpnSshServer) -> String {
+fn render_server_config(server: &HpnSshServer, listener: &AgentListener) -> String {
     format!(
-        "Port {}\nListenAddress {}\nHostKey {}\nAuthorizedKeysFile {}\nPermitRootLogin prohibit-password\nAuthenticationMethods publickey\nPubkeyAuthentication yes\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nChallengeResponseAuthentication no\nAllowTcpForwarding remote\nGatewayPorts no\nX11Forwarding no\nAllowAgentForwarding no\nPermitTTY no\nUseDNS no\nClientAliveInterval 20\nClientAliveCountMax 3\nMaxSessions 8\n",
-        server.port, server.bind, server.host_key_file, server.authorized_keys_file
+        "Port {}\nListenAddress {}\nHostKey {}\nAuthorizedKeysFile {}\nPidFile none\nPermitRootLogin prohibit-password\nAuthenticationMethods publickey\nPubkeyAuthentication yes\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nChallengeResponseAuthentication no\nAllowTcpForwarding remote\nPermitListen {}\nPermitOpen none\nPermitTunnel no\nAllowStreamLocalForwarding no\nGatewayPorts no\nX11Forwarding no\nAllowAgentForwarding no\nPermitTTY no\nUseDNS no\nClientAliveInterval 20\nClientAliveCountMax 3\nMaxSessions 0\n",
+        server.port,
+        server.bind,
+        server.host_key_file,
+        server.authorized_keys_file,
+        authority(&listener.bind, listener.port),
     )
 }
 
-fn validate_server(lane: &AgentLane) -> Result<(), String> {
-    let Some(server) = &lane.hpnssh.server else {
+fn validate_server(lane: &AgentLane, hpn: &HpnSshLane) -> Result<(), String> {
+    let Some(server) = &hpn.server else {
         return Err(format!(
             "agent lane {:?} server settings are required",
             lane.id
         ));
     };
-    if lane.hpnssh.client.is_some()
+    if hpn.client.is_some()
         || !matches!(server.bind.as_str(), "0.0.0.0" | "::")
         || server.port < 1024
         || server.host_key_file.is_empty()
@@ -295,20 +311,19 @@ fn validate_server(lane: &AgentLane) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_client(lane: &AgentLane) -> Result<(), String> {
-    let Some(client) = &lane.hpnssh.client else {
+fn validate_client(lane: &AgentLane, hpn: &HpnSshLane) -> Result<(), String> {
+    let Some(client) = &hpn.client else {
         return Err(format!(
             "agent lane {:?} client settings are required",
             lane.id
         ));
     };
-    if lane.hpnssh.server.is_some()
+    if hpn.server.is_some()
         || client.user.is_empty()
         || client.identity_file.is_empty()
         || client.known_hosts_file.is_empty()
         || !valid_known_host(&client.known_host, &lane.peer)
-        || !matches!(client.target.host.as_str(), "127.0.0.1" | "::1")
-        || client.target.port < 1024
+        || !client.target.is_loopback()
     {
         return Err(format!(
             "agent lane {:?} has invalid client settings",
@@ -316,6 +331,20 @@ fn validate_client(lane: &AgentLane) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+impl AgentTarget {
+    pub(crate) fn is_loopback(&self) -> bool {
+        matches!(self.host.as_str(), "127.0.0.1" | "::1") && self.port >= 1024
+    }
+}
+
+pub(crate) fn authority(host: &str, port: u16) -> String {
+    if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
 }
 
 fn valid_known_host(value: &str, peer: &AgentPeer) -> bool {

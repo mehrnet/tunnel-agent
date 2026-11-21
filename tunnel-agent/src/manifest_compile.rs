@@ -37,25 +37,32 @@ fn compile_plan(
     let mut processes = compilation.processes;
     let mut generated_files = compilation.generated_files;
     let mut listeners = compilation.listeners;
-    let mut agent_lanes = Vec::new();
+    let mut seeds = HashSet::new();
 
-    for lane in config.agent.lanes.iter().filter(|lane| lane.enabled) {
+    for lane in config
+        .agent
+        .lanes
+        .iter()
+        .filter(|lane| selected_ids.contains(lane.id.as_str()))
+    {
         let bundle_root = config
             .bundle
             .as_ref()
             .ok_or_else(|| "agent lanes require a bundled manifest".to_owned())?
             .root
             .as_path();
-        let (plan, lane_processes, lane_files, lane_listeners) = agent_lane::compile(
-            lane,
-            selected_ids.contains(lane.id.as_str()),
-            bundle_root,
-            state_dir,
-        );
+        let (lane_processes, lane_files, lane_listeners) =
+            agent_lane::compile(lane, bundle_root, state_dir, check_only)?;
         processes.extend(lane_processes);
         generated_files.extend(lane_files);
         listeners.extend(lane_listeners);
-        agent_lanes.push(plan);
+        if let Some(target) = lane.seed_target()
+            && seeds.insert((target.host.as_str(), target.port))
+        {
+            let (seed, claim) = agent_lane::compile_seed(target, bundle_root, state_dir);
+            processes.push(seed);
+            listeners.push(claim);
+        }
     }
 
     crate::ingress::compile(
@@ -72,7 +79,7 @@ fn compile_plan(
         processes,
         generated_files,
         listeners,
-        agent_lanes,
+        agent_lanes: selected,
     })
 }
 

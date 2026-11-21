@@ -39,7 +39,7 @@ pub(crate) struct ManagedReverse {
     pub(crate) peer_host: String,
     pub(crate) peer_key: String,
     pub(crate) local_key: String,
-    generation: String,
+    pub(crate) generation: String,
 }
 
 impl ManagedReverse {
@@ -278,7 +278,10 @@ impl ManagedReverse {
                     .expect("validated managed Rathole target");
                 (
                     "client",
-                    format!("remote_addr = \"{}:{}\"", self.peer_host, self.control_port),
+                    format!(
+                        "remote_addr = \"{}\"",
+                        crate::agent_lane::authority(&self.peer_host, self.control_port)
+                    ),
                     format!("local_addr = \"{}:{}\"", target.host, target.port),
                 )
             }

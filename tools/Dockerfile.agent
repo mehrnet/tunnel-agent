@@ -19,9 +19,8 @@ RUN apk add --no-cache \
 WORKDIR /src/tunnel-agent
 COPY . .
 
-# Building inside the target Alpine platform gives every transport the native
-# Keep the current-generation transports together. Rathole and TrustTunnel have
-# older, compiler-constrained dependency graphs and build separately.
+# Build the agent and WSTunnel on the target Alpine platform. Rathole builds
+# separately with an older Rust toolchain.
 RUN OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 TUNNEL_AGENT_VERSION="$TUNNEL_AGENT_VERSION" \
       cargo build --locked --release \
     && OPENSSL_STATIC=1 PKG_CONFIG_ALL_STATIC=1 \

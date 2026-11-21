@@ -268,7 +268,7 @@ fn compiles_an_agent_lane_plan_with_control_processes_only() {
     assert_eq!(plan.processes.len(), 2);
     assert_eq!(plan.agent_lanes[0].id, "8NdSLH0jy7Af3Gu9h");
     assert!(plan.agent_lanes[0].selected);
-    assert_eq!(plan.listeners[0].owner, "agent seed 8NdSLH0jy7Af3Gu9h");
+    assert_eq!(plan.listeners[0].owner, "agent-seed-v4-42022");
 }
 
 #[test]
@@ -327,21 +327,19 @@ fn compiles_each_transport_contract() {
         {"id":"hpn_client","version":"v1","binary":"hpnssh","sha256":"0000000000000000000000000000000000000000000000000000000000000000","sources":[{"url":"https://example.test/hpn-client"}]},
         {"id":"hpn_server","version":"v1","binary":"hpnsshd","sha256":"0000000000000000000000000000000000000000000000000000000000000000","sources":[{"url":"https://example.test/hpn-server"}]},
         {"id":"wstunnel","version":"v1","binary":"wstunnel","sha256":"0000000000000000000000000000000000000000000000000000000000000000","sources":[{"url":"https://example.test/wstunnel"}]},
-        {"id":"rathole","version":"v1","binary":"rathole","sha256":"0000000000000000000000000000000000000000000000000000000000000000","sources":[{"url":"https://example.test/rathole"}]},
-        {"id":"trusttunnel","version":"v1","binary":"trusttunnel_endpoint","sha256":"0000000000000000000000000000000000000000000000000000000000000000","sources":[{"url":"https://example.test/trusttunnel"}]}
+        {"id":"rathole","version":"v1","binary":"rathole","sha256":"0000000000000000000000000000000000000000000000000000000000000000","sources":[{"url":"https://example.test/rathole"}]}
       ],
       "tunnels": [
         {"contract":"hpnssh.forward.v1","id":"hpn_forward","artifact":"hpn_client","direction":"remote_tcp","peer":{"host":"peer.example","user":"tunnel","port":2222,"known_hosts_file":"/etc/tunnel-agent/known_hosts"},"listener":{"bind":"127.0.0.1","port":10810,"target":{"host":"127.0.0.1","port":48443}}},
         {"contract":"hpnssh.server.v1","id":"hpn_server","artifact":"hpn_server","config_file":"/etc/hpnssh/sshd_config"},
         {"contract":"wstunnel.server.v1","id":"wstunnel_server","artifact":"wstunnel","listener":{"bind":"0.0.0.0","port":4444},"tls_certificate":"/etc/tunnel-agent/cert.pem","tls_private_key":"/etc/tunnel-agent/key.pem","path_prefix":"/tunnel"},
         {"contract":"wstunnel.reverse.v1","id":"wstunnel_reverse","artifact":"wstunnel","endpoint":{"url":"wss://peer.example:4444","tls_sni":"peer.example","path_prefix":"/tunnel"},"remote_listener":{"scheme":"socks5","bind":"127.0.0.1","port":10910}},
-        {"contract":"rathole.service.v1","id":"rathole_server","artifact":"rathole","role":"server","control":{"bind":"0.0.0.0:2333"},"services":[{"id":"xhttp","token":"secret","bind":"0.0.0.0:8443"}]},
-        {"contract":"trusttunnel.endpoint.v1","id":"trusttunnel_endpoint","artifact":"trusttunnel","settings_file":"/etc/trusttunnel/vpn.toml","tls_hosts_file":"/etc/trusttunnel/hosts.toml"}
+        {"contract":"rathole.service.v1","id":"rathole_server","artifact":"rathole","role":"server","control":{"bind":"0.0.0.0:2333"},"services":[{"id":"xhttp","token":"secret","bind":"0.0.0.0:8443"}]}
       ]
     }"#;
     let config: Config = serde_json::from_str(raw).expect("valid typed manifest");
     let plan = compile(&config, Path::new("/state")).expect("all contracts compile");
-    assert_eq!(plan.processes.len(), 6);
+    assert_eq!(plan.processes.len(), 5);
     assert_eq!(plan.listeners.len(), 3);
     assert!(
         plan.generated_files[0]

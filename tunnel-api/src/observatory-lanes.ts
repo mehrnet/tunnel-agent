@@ -59,7 +59,7 @@ function parseSnapshot(row: NodeDocumentRow): Snapshot {
   return {
     nodeId: row.node_id, updatedAt: row.updated_at,
     interval: bounded(agent.poll_interval_secs, 5, 3600) ?? DEFAULT_REPORT_INTERVAL_SECONDS,
-    maxActive: bounded(agent.max_active_lanes, 1, 16) ?? 1,
+    maxActive: bounded(agent.max_active_lanes, 1, 64) ?? 1,
     lanes: Array.isArray(agent.lanes) ? agent.lanes.map(parseLane).filter((lane) => lane !== null) : [],
     tunnels: Array.isArray(manifest.tunnels) ? manifest.tunnels.filter(record) : [],
   };
@@ -89,11 +89,12 @@ export function observatoryLanes(documents: NodeDocumentRow[], samples: LaneMetr
     expiresAt,
     async lanes(nodes: Peer[], managed: ManagedLane[]) {
       const edges = mergeManagementEnds(snapshots);
-      const management = edges.map(({ doc, lane, selected }) => ({
+      const management = edges.map(({ doc, lane, selected, observed }) => ({
         id: lane.id, kind: "management", transport: lane.transport, direction: lane.direction,
         priority: lane.priority, selected, source_node_id: doc.nodeId, peer_node_id: lane.peerNodeId,
         local_listener: lane.listener,
-        ...observation(doc.nodeId, lane.id, doc.updatedAt, selected, lane.client ? "peer_control" : "local_control"),
+        ...observation(observed.doc.nodeId, observed.lane.id, observed.doc.updatedAt, selected,
+          observed.lane.client ? "peer_control" : "local_listener"),
       }));
       const customerLanes = [...snapshots.flatMap((doc) => tunnelEdges(doc, nodes)), ...managed.map(managedEdge)];
       const customer = await Promise.all(customerLanes.map(async ({ observedNode, contract, updatedAt, scope, edge }) => ({
@@ -106,16 +107,23 @@ export function observatoryLanes(documents: NodeDocumentRow[], samples: LaneMetr
 }
 
 function mergeManagementEnds(snapshots: Snapshot[]) {
-  const edges = new Map<string, { doc: Snapshot; lane: ParsedLane; selected: boolean }>();
+  type Endpoint = { doc: Snapshot; lane: ParsedLane; selected: boolean };
+  const edges = new Map<string, { client?: Endpoint; server?: Endpoint }>();
   for (const doc of snapshots) {
     const active = doc.lanes.filter((lane) => lane.enabled).sort((left, right) => left.priority - right.priority).slice(0, doc.maxActive);
     for (const lane of doc.lanes) {
       const endpoints = [doc.nodeId, lane.peerNodeId].sort();
-      const key = JSON.stringify([...endpoints, lane.transport, lane.direction, lane.listener, lane.priority]);
-      if (!edges.has(key) || lane.client) edges.set(key, { doc, lane, selected: active.includes(lane) });
+      const key = JSON.stringify([...endpoints, lane.transport, lane.direction, lane.listener]);
+      const edge = edges.get(key) ?? {};
+      edge[lane.client ? "client" : "server"] = { doc, lane, selected: active.includes(lane) };
+      edges.set(key, edge);
     }
   }
-  return [...edges.values()];
+  return [...edges.values()].flatMap(({ client, server }) => {
+    const primary = client ?? server;
+    if (!primary) return [];
+    return [{ ...primary, observed: server ?? primary, selected: Boolean(client?.selected && server?.selected) }];
+  });
 }
 
 function managedEdge(lane: ManagedLane) {

@@ -31,7 +31,6 @@ architecture:
 ├── bin/tunnel-agent
 ├── bin/wstunnel
 ├── bin/rathole
-├── bin/trusttunnel_endpoint
 └── hpnssh/
     ├── bin/hpnssh
     ├── sbin/hpnsshd
@@ -90,7 +89,6 @@ without writing files.
 | `wstunnel.server.v1` | WSTunnel server | TLS WSS listener with a restricted path prefix. |
 | `wstunnel.reverse.v1` | WSTunnel client | Reverse SOCKS or fixed-TCP listener over WSS. |
 | `rathole.service.v1` | Rathole server/client | Token-authenticated TCP service forwarding. |
-| `trusttunnel.endpoint.v1` | TrustTunnel endpoint | VPN endpoint with supplied settings and TLS host files. |
 
 Full role and configuration details are in [docs/CONTRACTS.md](docs/CONTRACTS.md).
 

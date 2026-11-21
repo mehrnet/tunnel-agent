@@ -47,8 +47,9 @@ or peer seeding before it could apply an update.
 `agent` is the only top-level object for tunnel-agent runtime behavior. It is
 strictly separate from `tunnels`: a management lane never exposes customer
 traffic, SOCKS, or a public listener. Version 3 manifests may declare a small,
-ordered set of control lanes. The first implemented transport is an HPNSSH
-foreign-to-domestic reverse forward:
+ordered set of control lanes. HPNSSH, WSTunnel, and Rathole can run in parallel.
+Each foreign connector reaches a domestic control port and exposes the
+foreign relay to the domestic agent over a separate loopback TCP listener:
 
 ```json
 {
@@ -64,8 +65,8 @@ foreign-to-domestic reverse forward:
       "priority": 10,
       "peer": {
         "node_id": "d6caf939-b959-4471-918f-2e05ca282a37",
-        "host": "de-1.example.net",
-        "port": 4443
+        "host": "ir-6.example.net",
+        "port": 42001
       },
       "listener": {"bind": "127.0.0.1", "port": 42022},
       "hpnssh": {
@@ -90,15 +91,29 @@ They are not labels such as `hpn-primary` or `ws-secondary`. The manifest
 rejects public or privileged management listeners, duplicate enabled priorities,
 and listener collisions with typed tunnel contracts. Every enabled lane is
 eligible; after priority ordering, the first `max_active_lanes` are selected
-and the rest remain validated standbys. This makes failover safe without
-having to issue a new manifest during an outage.
+and the rest are validated but not started. The default is one active lane;
+the maximum is 64. Set the limits and priorities on both endpoints so each
+intended failover path is selected on both nodes. A configured but inactive
+lane is not automatically started when an active path fails.
 
-The selected `hpnssh` lane starts two foreign processes: a loopback-only seed
-server and the pinned HPNSSH client. Its domestic peer starts only the
-restricted `hpnsshd`. The agent rejects a management listener collision with a
-typed customer tunnel before either process is started. `wstunnel`, `rathole`,
-and `trusttunnel` remain declared but unavailable for agent lanes until their
-role-specific management contracts have equivalent isolation and verification.
+- `hpnssh`: Existing settings are unchanged. The dedicated domestic daemon
+  permits only the configured remote loopback listener. The foreign connector
+  uses the configured pinned host key.
+- `wstunnel`: Each end needs a `wstunnel` object with the absolute paths
+  `certificate_file`, `key_file`, and `peer_ca_file`. Use a dedicated client CA
+  for the lane; the server trusts it for client authentication. The foreign
+  client additionally sets `tls_name` to the server certificate's DNS name
+  and `target` to the loopback relay. The domestic server restricts requests
+  to the configured fixed reverse TCP listener.
+- `rathole`: Each end needs a `rathole` object with `local_key`, `peer_key`
+  (the registered public Noise keys), and the same 64-character hexadecimal
+  `generation` on both ends. The foreign client adds the loopback `target`.
+  The private Noise key stays on the node.
+
+For WSTunnel and Rathole, `peer.port` is the domestic control port on both
+ends. The fixed listener and target must use `127.0.0.1`. Active ports must
+not collide with other lanes or customer listeners. Multiple active foreign
+connectors with the same target share one seed process.
 
 ## Peer-Seeded Bundles
 
@@ -125,8 +140,9 @@ must never bind a public address.
    from the cache or the current indexed bundle, so a peer transfer contains
    only new content.
 
-The domestic `agent.bundle_seed` setting automates polling after an agent lane
-maps the foreign seed service to the declared local URL:
+The domestic agent derives relay URLs from its active management listeners.
+The optional legacy `agent.bundle_seed` setting can add one fallback URL and
+override the default bundle poll interval:
 
 ```json
 {
@@ -148,11 +164,14 @@ Desired config polling is independent of bundle updates and telemetry.
 `agent.config_poll_interval_secs` defaults to 5 seconds on both types of node
 and accepts integers from 5 to 3600. Foreign relays check both their own
 document and their authorized domestic snapshots; unchanged responses are
-conditional. Domestic agents check their signed document through their
-configured management lane only. Keep the optional field out of documents
-delivered to agents that predate it. `agent.poll_interval_secs` controls
-heartbeat and telemetry (60 seconds by default), and the domestic bundle poll
-remains at 300 seconds by default.
+conditional. Domestic agents check the active relays in parallel and apply
+the highest verified revision. Heartbeats and telemetry try active relays in
+priority order. Bundle seeding retries another eligible relay if a transfer
+fails. With multiple relay URLs, bundle polling only automatically upgrades
+numeric `vMAJOR.MINOR.PATCH` releases, so stale backups cannot silently
+downgrade the node. Use an explicit rollback to install an older release.
+`agent.poll_interval_secs` controls heartbeat and telemetry (60 seconds by
+default), and the domestic bundle poll defaults to 300 seconds.
 
 ## Managed Reverse Tunnels
 
@@ -317,28 +336,6 @@ Client:
 
 The agent renders a private TOML file under its state directory and invokes
 Rathole in explicit `--server` or `--client` mode.
-
-## TrustTunnel
-
-TrustTunnel is an HTTPS-shaped VPN endpoint, not a generic reverse forwarder.
-`trusttunnel.endpoint.v1` starts its endpoint binary with prepared main settings
-and TLS host files. Credentials, client rules, certificates, and optional
-subscription configuration remain protected inputs supplied by the tunnel-agent
-API.
-The contract makes endpoint lifecycle declarative without misrepresenting it as
-a substitute for HPNSSH, WSTunnel, or Rathole lanes.
-
-```json
-{
-  "contract": "trusttunnel.endpoint.v1",
-  "id": "trusttunnel_de",
-  "artifact": "trusttunnel_endpoint",
-  "settings_file": "/etc/tunnel-agent/trusttunnel/vpn.toml",
-  "tls_hosts_file": "/etc/tunnel-agent/trusttunnel/hosts.toml",
-  "jobs": 2,
-  "log_level": "info"
-}
-```
 
 ## Rollout model
 

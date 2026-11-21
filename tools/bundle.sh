@@ -7,7 +7,6 @@ set -eu
 : "${TUNNEL_AGENT_BIN:?set TUNNEL_AGENT_BIN}"
 : "${WSTUNNEL_BIN:?set WSTUNNEL_BIN}"
 : "${RATHOLE_BIN:?set RATHOLE_BIN}"
-: "${TRUSTTUNNEL_BIN:?set TRUSTTUNNEL_BIN}"
 : "${HPNSSH_PREFIX:?set HPNSSH_PREFIX}"
 : "${BUNDLE_OUTPUT_DIR:?set BUNDLE_OUTPUT_DIR}"
 
@@ -33,7 +32,6 @@ file_bytes() {
 install -m 0755 "$TUNNEL_AGENT_BIN" "$root/bin/tunnel-agent"
 install -m 0755 "$WSTUNNEL_BIN" "$root/bin/wstunnel"
 install -m 0755 "$RATHOLE_BIN" "$root/bin/rathole"
-install -m 0755 "$TRUSTTUNNEL_BIN" "$root/bin/trusttunnel_endpoint"
 cp -a "$HPNSSH_PREFIX" "$root/hpnssh"
 
 cat > "$root/bundle.json" <<EOF
@@ -45,8 +43,7 @@ cat > "$root/bundle.json" <<EOF
     "hpnssh": "hpnssh/bin/hpnssh",
     "hpnsshd": "hpnssh/sbin/hpnsshd",
     "wstunnel": "bin/wstunnel",
-    "rathole": "bin/rathole",
-    "trusttunnel": "bin/trusttunnel_endpoint"
+    "rathole": "bin/rathole"
   }
 }
 EOF

@@ -42,7 +42,6 @@ pub(super) const BUNDLED_ARTIFACTS: &[(&str, &str)] = &[
     ("hpnsshd", "hpnssh/sbin/hpnsshd"),
     ("wstunnel", "bin/wstunnel"),
     ("rathole", "bin/rathole"),
-    ("trusttunnel", "bin/trusttunnel_endpoint"),
 ];
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -153,8 +152,6 @@ pub enum TunnelSpec {
     WstunnelReverse(WstunnelReverse),
     #[serde(rename = "rathole.service.v1")]
     RatholeService(RatholeService),
-    #[serde(rename = "trusttunnel.endpoint.v1")]
-    TrustTunnelEndpoint(TrustTunnelEndpoint),
 }
 
 impl TunnelSpec {
@@ -166,7 +163,6 @@ impl TunnelSpec {
             Self::WstunnelServer(spec) => &spec.id,
             Self::WstunnelReverse(spec) => &spec.id,
             Self::RatholeService(spec) => &spec.id,
-            Self::TrustTunnelEndpoint(spec) => &spec.id,
         }
     }
 
@@ -178,7 +174,6 @@ impl TunnelSpec {
             Self::WstunnelServer(spec) => &spec.artifact,
             Self::WstunnelReverse(spec) => &spec.artifact,
             Self::RatholeService(spec) => &spec.artifact,
-            Self::TrustTunnelEndpoint(spec) => &spec.artifact,
         }
     }
 
@@ -190,7 +185,6 @@ impl TunnelSpec {
             Self::WstunnelServer(spec) => spec.enabled,
             Self::WstunnelReverse(spec) => spec.enabled,
             Self::RatholeService(spec) => spec.enabled,
-            Self::TrustTunnelEndpoint(spec) => spec.enabled,
         }
     }
 }
@@ -384,29 +378,6 @@ pub enum RatholeTransportKind {
     Tcp,
     Tls,
     Noise,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TrustTunnelEndpoint {
-    pub id: String,
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    pub artifact: String,
-    pub settings_file: PathBuf,
-    pub tls_hosts_file: PathBuf,
-    pub jobs: Option<u16>,
-    pub log_level: Option<TrustTunnelLogLevel>,
-    #[serde(default)]
-    pub restart: RestartPolicy,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TrustTunnelLogLevel {
-    Info,
-    Debug,
-    Trace,
 }
 
 #[derive(Clone, Debug)]

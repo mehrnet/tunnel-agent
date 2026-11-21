@@ -9,14 +9,11 @@ use reqwest::blocking::Client;
 use crate::{
     agent_control,
     agent_poll::{self, OnlineApi, PollJob, RemoteDocument, polling_interval, set_period},
-    foreign_update,
+    agent_relays, foreign_update,
     identity::valid_uuid,
     manifest::{self, Config},
-    relay,
     runtime::{self, reconcile_plan, start_plan, stop_plan},
-    seed,
-    seed_client::SeedSource,
-    telemetry,
+    seed, telemetry,
 };
 
 pub(crate) struct AgentSettings {
@@ -221,7 +218,7 @@ async fn apply_online_document(
 
 async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Result<(), String> {
     let report_period = effective_poll_interval(settings, &config)?;
-    let mut relay = relay_client(&config)?;
+    let mut sources = agent_relays::sources(&config.agent);
     let (mut running, reporter) = start_agent_plan(settings, &config).await?;
     let mut revision = read_revision(&settings.state_dir.join("document-revision"))?;
     let mut config_poll = polling_interval(config.agent.config_poll_interval_secs);
@@ -236,23 +233,25 @@ async fn reconcile_offline(settings: &AgentSettings, mut config: Config) -> Resu
         tokio::select! {
             _ = &mut shutdown => break,
             _ = config_poll.tick() => {
-                if let Some(client) = &relay {
-                    let (client, node_file) = (client.clone(), settings.node_id_file.clone());
-                    desired.start(move || fetch_relay_document(&client, &node_file));
+                if !sources.is_empty() {
+                    let (paths, node_file) = (sources.clone(), settings.node_id_file.clone());
+                    desired.start(move || agent_relays::fetch_document(&paths, &node_file));
                 }
             }
             result = desired.result() => match result {
                 Ok(document) if document.revision > revision => {
-                    match apply_offline_document(settings, &mut running, &config, revision, &document, &relay).await {
-                        Ok((next, next_relay)) => {
-                            let source_changed = seed_source(&config) != seed_source(&next);
-                            relay = next_relay;
+                    match apply_offline_document(settings, &mut running, &config, revision, &document).await {
+                        Ok(next) => {
+                            let next_sources = agent_relays::sources(&next.agent);
+                            let source_changed = sources != next_sources;
+                            sources = next_sources;
                             config = next;
                             revision = document.revision;
                             set_period(&mut config_poll, config.agent.config_poll_interval_secs);
                             set_period(&mut updates, offline_poll_interval(&config));
                             if source_changed {
                                 updates.reset_immediately();
+                                reports.reset_immediately();
                             }
                             set_period(&mut reports, effective_poll_interval(settings, &config)?);
                         }
@@ -299,6 +298,7 @@ async fn start_agent_plan(
         .ok_or_else(|| "agent manifest has no bundle".to_owned())?;
     let keys = crate::transport_identity::provision(&bundle.root, &settings.state_dir);
     let mut boot = config.clone();
+    boot.agent.retain_startable_lanes(&keys);
     boot.tunnels.retain(|tunnel| {
         if let manifest::TunnelSpec::ManagedReverse(lane) = tunnel
             && lane.enabled
@@ -324,18 +324,21 @@ fn report_domestic_telemetry(
     config: &Config,
     reporter: &agent_poll::Reporter,
 ) -> Result<(), String> {
-    let Some(seed_config) = &config.agent.bundle_seed else {
+    let sources = agent_relays::sources(&config.agent);
+    if sources.is_empty() {
         return Ok(());
-    };
-    let source = &seed_config.source;
+    }
     let node_id = read_secret_file(node_id_file, "node id")?;
-    if let Err(error) = seed::ping_relay(source, &node_id) {
+    let heartbeat = agent_relays::heartbeat(&sources, &node_id);
+    let Some(report) = agent_poll::sample(reporter, config)? else {
+        return heartbeat;
+    };
+    if let Err(error) = heartbeat {
         eprintln!("relay heartbeat failed: {error}");
     }
-    let Some(report) = agent_poll::sample(reporter, config)? else {
-        return Ok(());
-    };
-    telemetry::send_domestic(source, &node_id, &report)
+    agent_relays::first_working(&sources, |source| {
+        telemetry::send_domestic(source, &node_id, &report)
+    })
 }
 
 fn offline_poll_interval(config: &Config) -> u64 {
@@ -344,7 +347,7 @@ fn offline_poll_interval(config: &Config) -> u64 {
         .bundle_seed
         .as_ref()
         .map(|seed| seed.poll_interval_secs)
-        .unwrap_or(config.agent.poll_interval_secs)
+        .unwrap_or(crate::agent_spec::DEFAULT_BUNDLE_POLL_INTERVAL_SECS)
 }
 
 fn effective_poll_interval(settings: &AgentSettings, config: &Config) -> Result<u64, String> {
@@ -357,53 +360,15 @@ fn effective_poll_interval(settings: &AgentSettings, config: &Config) -> Result<
     Ok(interval)
 }
 
-fn seed_source(config: &Config) -> Option<&str> {
-    config
-        .agent
-        .bundle_seed
-        .as_ref()
-        .map(|seed| seed.source.as_str())
-}
-
-fn relay_client(config: &Config) -> Result<Option<SeedSource>, String> {
-    seed_source(config)
-        .map(|source| SeedSource::with_timeout(source, agent_poll::CONFIG_REQUEST_TIMEOUT))
-        .transpose()
-}
-
 async fn apply_offline_document(
     settings: &AgentSettings,
     running: &mut runtime::RunningPlan,
     active: &Config,
     revision: u64,
     document: &RemoteDocument,
-    relay: &Option<SeedSource>,
-) -> Result<(Config, Option<SeedSource>), String> {
+) -> Result<Config, String> {
     let candidate = manifest::parse_config(&document.manifest_json)?;
-    let next_relay = if seed_source(active) == seed_source(&candidate) {
-        relay.clone()
-    } else {
-        relay_client(&candidate)?
-    };
-    let config = apply_document(settings, running, active, revision, document, candidate).await?;
-    Ok((config, next_relay))
-}
-
-fn fetch_relay_document(
-    source: &SeedSource,
-    node_id_file: &Path,
-) -> Result<RemoteDocument, String> {
-    let node_id = read_secret_file(node_id_file, "node id")?;
-    let raw = source.relay_document(&node_id)?;
-    let verified = relay::verify_for_local_node(
-        &raw,
-        Path::new("/etc/tunnel-agent/relay-state.json"),
-        node_id_file,
-    )?;
-    Ok(RemoteDocument {
-        revision: verified.revision,
-        manifest_json: verified.manifest_json,
-    })
+    apply_document(settings, running, active, revision, document, candidate).await
 }
 
 async fn apply_document(
@@ -426,7 +391,9 @@ async fn apply_document(
     reconcile_plan(
         running,
         candidate_plan,
-        active_config.agent.lanes_changed(&candidate_config.agent),
+        &active_config
+            .agent
+            .changed_credentials(&candidate_config.agent),
     )
     .await;
     manifest::write_config_atomic(

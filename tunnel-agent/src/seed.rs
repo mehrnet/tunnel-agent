@@ -3,6 +3,7 @@ use std::{fs, io::Write, net::TcpStream, path::Path, process::Command};
 use crate::manifest::{Config, NodeScope};
 use crate::seed_client::SeedSource;
 use crate::{
+    agent_relays,
     identity::valid_uuid,
     release::{
         BundleFile, BundleIndex, INDEX_NAME, ReleaseDocument, as_utf8, cache_link_or_copy,
@@ -34,18 +35,31 @@ pub(crate) fn ping_relay(source: &str, node_id: &str) -> Result<(), String> {
 }
 
 pub(crate) fn apply(root: &Path, source: &str, activate: bool) -> Result<SeedResult, String> {
-    let source = SeedSource::new(source)?;
+    let document = release_from(source)?;
+    apply_document(root, source, &document, activate)
+}
+
+fn release_from(source: &str) -> Result<ReleaseDocument, String> {
     let architecture = local_architecture()?;
-    let raw_document = source.get_bytes("/v1/release", MAX_DOCUMENT_BYTES)?;
-    let document =
-        verify_release_document(as_utf8(&raw_document, "release document")?, &architecture)?;
+    let raw = SeedSource::with_timeout(source, crate::agent_poll::CONFIG_REQUEST_TIMEOUT)?
+        .get_bytes("/v1/release", MAX_DOCUMENT_BYTES)?;
+    verify_release_document(as_utf8(&raw, "release document")?, &architecture)
+}
+
+fn apply_document(
+    root: &Path,
+    source: &str,
+    document: &ReleaseDocument,
+    activate: bool,
+) -> Result<SeedResult, String> {
+    let source = SeedSource::new(source)?;
     let raw_index = source.get_bytes("/v1/index", MAX_INDEX_BYTES)?;
     if sha256_bytes(&raw_index) != document.inventory_sha256 {
         return Err("seed inventory does not match the signed release document".to_owned());
     }
     let index = parse_index(as_utf8(&raw_index, "bundle inventory")?)?;
-    ensure_index_matches_document(&index, &document)?;
-    install_seeded_release(root, &source, &document, &index, &raw_index, activate)
+    ensure_index_matches_document(&index, document)?;
+    install_seeded_release(root, &source, document, &index, &raw_index, activate)
 }
 
 pub(crate) struct StagedSeed {
@@ -57,16 +71,82 @@ pub(crate) fn stage_configured(config: &Config) -> Result<Option<StagedSeed>, St
     if config.node_scope != NodeScope::Domestic {
         return Err("only domestic agents may apply a peer-seeded bundle".to_owned());
     }
-    let Some(seed_config) = config.agent.bundle_seed.as_ref() else {
+    let sources = agent_relays::sources(&config.agent);
+    if sources.is_empty() {
         return Ok(None);
-    };
+    }
     let root = configured_root(config)?;
-    let result = apply(root, &seed_config.source, false)?;
-    let candidate = root.join("releases").join(&result.version);
-    Ok((!is_current_release(root, &candidate)).then(|| StagedSeed {
-        source: seed_config.source.clone(),
-        version: result.version,
-    }))
+    let active = fs::canonicalize(root.join("current"))
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_owned)
+        });
+    let results = agent_relays::collect(&sources, |source| {
+        release_from(source).map(|document| (source.to_owned(), document))
+    });
+    let mut candidates = Vec::new();
+    let mut error = "no relay can serve a signed bundle".to_owned();
+    for result in results {
+        match result {
+            Ok(candidate) => candidates.push(candidate),
+            Err(failure) => error = failure,
+        }
+    }
+    if candidates.is_empty() {
+        return Err(error);
+    }
+    let redundant = sources.len() > 1;
+    candidates.sort_by_key(|(_, doc)| std::cmp::Reverse(release_number(&doc.version)));
+    let mut attempted = false;
+    for (source, document) in candidates {
+        if !can_stage(&document.version, active.as_deref(), redundant) {
+            continue;
+        }
+        attempted = true;
+        match apply_document(root, &source, &document, false) {
+            Ok(result) => {
+                return Ok(Some(StagedSeed {
+                    source,
+                    version: result.version,
+                }));
+            }
+            Err(failure) => error = format!("{source}: {failure}"),
+        }
+    }
+    if attempted { Err(error) } else { Ok(None) }
+}
+
+fn release_number(version: &str) -> Option<[u64; 3]> {
+    let mut parts = version.strip_prefix('v')?.split('.');
+    let number = [
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    ];
+    parts.next().is_none().then_some(number)
+}
+
+fn can_stage(version: &str, active: Option<&str>, redundant: bool) -> bool {
+    if active == Some(version) {
+        return false;
+    }
+    // Two valid signatures say nothing about cache age. Only accept an upgrade on redundant lanes.
+    !redundant
+        || active.is_none_or(|active| {
+            release_number(version)
+                .is_some_and(|next| release_number(active).is_none_or(|old| next > old))
+        })
+}
+
+#[test]
+fn stale_signed_release_cannot_downgrade_a_redundant_agent() {
+    assert!(can_stage("v0.6.0", Some("v0.5.9"), true));
+    assert!(can_stage("v0.5.10", Some("v0.5.9"), true));
+    assert!(!can_stage("v0.5.9", Some("v0.6.0"), true));
+    assert!(!can_stage("v0.6.0", Some("v0.6.0"), true));
+    assert!(can_stage("v0.5.9", Some("v0.6.0"), false));
 }
 
 pub(crate) fn activate_configured(
@@ -76,12 +156,7 @@ pub(crate) fn activate_configured(
     let Some(StagedSeed { source, version }) = staged? else {
         return Ok(None);
     };
-    if !config
-        .agent
-        .bundle_seed
-        .as_ref()
-        .is_some_and(|seed| seed.source == source)
-    {
+    if !agent_relays::sources(&config.agent).contains(&source) {
         return Ok(None);
     }
     let root = configured_root(config)?;

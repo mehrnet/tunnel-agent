@@ -175,7 +175,7 @@ bundle_complete() {
   bundle_path=$1
   [ -x "$bundle_path/bin/tunnel-agent" ] && [ -x "$bundle_path/hpnssh/bin/hpnssh" ] && \
     [ -x "$bundle_path/hpnssh/sbin/hpnsshd" ] && [ -x "$bundle_path/bin/wstunnel" ] && \
-    [ -x "$bundle_path/bin/rathole" ] && [ -x "$bundle_path/bin/trusttunnel_endpoint" ]
+    [ -x "$bundle_path/bin/rathole" ]
 }
 
 is_chunk_manifest() {
