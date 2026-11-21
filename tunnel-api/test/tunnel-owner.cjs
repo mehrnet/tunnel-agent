@@ -129,10 +129,12 @@ async function recordTransportKeys(worker, env, node, transport_keys) {
   const token = randomUUID();
   const hash = createHash("sha256").update(token).digest("hex");
   await env.DB.prepare("UPDATE node_credentials SET secret_hash=? WHERE node_id=?").bind(hash, node).run();
+  const previous = await env.DB.prepare("SELECT sampled_at FROM node_telemetry WHERE node_id=?").bind(node).first();
+  const sampled_at = Math.max(Math.floor(Date.now() / 1000), (previous?.sampled_at ?? 0) + 1);
   const reply = await worker.fetch(new Request(`https://test.invalid/api/v1/nodes/${node}/telemetry`, {
     method: "POST", headers: { authorization: `Bearer ${node}.${token}` },
     body: JSON.stringify({
-      sampled_at: Math.floor(Date.now() / 1000) + 1, transport_keys, lanes: [],
+      sampled_at, transport_keys, lanes: [],
       host: { cpu_milli_percent: 0, memory_milli_percent: 0, load_1_milli: 0, rx_bytes_per_sec: 0, tx_bytes_per_sec: 0, agent_rss_bytes: 0 },
     }),
   }), env, {});
