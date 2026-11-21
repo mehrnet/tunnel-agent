@@ -78,7 +78,8 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; over
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .58; }
-:is(button, input, select, [role="button"]):focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+:is(button, input, select, summary, [role="button"]):focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+summary:focus:not(:focus-visible) { outline: none; }
 h1, h2, h3, p, ul, dl, dd { margin: 0; }
 code, .mono { direction: ltr; font-family: var(--mono); unicode-bidi: plaintext; }
 ::selection { color: var(--text); background: var(--brand-soft); }

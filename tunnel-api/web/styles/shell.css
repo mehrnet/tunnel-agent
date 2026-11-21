@@ -13,6 +13,7 @@
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .app-shell :is(input, select, textarea) { user-select: auto; -webkit-user-select: auto; }
 
