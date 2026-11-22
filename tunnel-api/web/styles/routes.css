@@ -43,3 +43,13 @@
 .route-label__key { grid-row: 1 / span 2; width: 5px; height: 5px; border-radius: 50%; background: var(--route-ink); }
 .route-label strong { overflow: hidden; text-overflow: ellipsis; font: 600 10px/1.12 var(--mono); }
 .route-label small { color: var(--route-status); font: 500 9px/1.1 var(--mono); }
+
+.map-routes--dense .route-line__track { opacity: .48; }
+.map-routes--dense .route-line[data-status="Degraded"] .route-line__track { opacity: .9; }
+.map-routes--dense .route-line:is([data-highlight="true"], [data-selected="true"]) .route-line__track { opacity: 1; stroke-width: 3.3; }
+.map-routes--dense .route-label:not(:focus-visible, [aria-pressed="true"], [data-reveal="true"]) { opacity: 0; }
+.map-routes--dense .route-label { pointer-events: none; }
+.bundle-list { list-style: none; padding: 12px 0 0; }
+.bundle-list li + li { margin-top: 4px; }
+.bundle-list__row { display: grid; grid-template-columns: minmax(0, 1fr) auto 12px; align-items: center; gap: 8px; width: 100%; text-align: left; }
+.bundle-list__row > svg { width: 12px; height: 12px; }

@@ -55,7 +55,7 @@ function useMapCamera() {
   return { ...viewport, size, attach };
 }
 
-function MapLegend(props: { unmapped: number }) {
+function MapLegend(props: { unmapped: number; dense: boolean }) {
   return <details class="map-key">
     <summary>Legend</summary>
     <div class="map-key__body">
@@ -64,6 +64,7 @@ function MapLegend(props: { unmapped: number }) {
         <li data-line="degraded">Degraded</li><li data-line="unknown">No current probe</li>
       </ul>
       <Show when={props.unmapped > 0}><p>{props.unmapped} unmapped in inventory</p></Show>
+      <Show when={props.dense}><p>Parallel lanes share a line. Select a line to see its lanes.</p></Show>
       <p>Drag to pan. Pinch or use the zoom controls.</p>
     </div>
   </details>;
@@ -122,20 +123,19 @@ export function TopologyMap(props: {
     const y = reveal(item.top, item.bottom, frame.top, frame.bottom);
     setFocusOffset((old) => ({ x: old.x + (rotated() ? y : x), y: old.y + (rotated() ? -x : y) }));
   };
-  const selectRoad = (id: string) => props.onSelect({ kind: "lane", id });
   const selectNode = (id: string) => props.onSelect({ kind: "node", id });
   return <div class="topology-frame"><section id="topology-panel" class="topology-panel" classList={{ "topology-panel--vertical": rotated() }}
-    aria-labelledby="topology-title" data-layout={portrait() ? "portrait" : "landscape"}>
+    aria-labelledby="topology-title" data-layout={layout().stacked ? "stacked" : "side-by-side"}>
     <h2 id="topology-title" class="visually-hidden">Network map</h2>
     <div class="topology-viewport" ref={camera.attach} onPointerDown={camera.down} onPointerMove={camera.move}
       onPointerUp={camera.up} onPointerCancel={camera.up} onPointerLeave={camera.leave} onFocusIn={followFocus}>
-      <div class="topology-grid" style={{ "--grid-step": `${24 * placement().scale}px`, "--grid-x": `${placement().x}px`, "--grid-y": `${placement().y}px` }} />
+      <div class="topology-grid" style={{ "--grid-step": `${(placement().scale < 0.5 ? 72 : 24) * placement().scale}px`, "--grid-x": `${placement().x}px`, "--grid-y": `${placement().y}px` }} />
       <Show when={props.cluster.nodes.length} fallback={
         <div class="map-empty"><WorkbenchIcon name="map" /><strong>No servers to map</strong><p>Add a server from the cluster menu to start building the topology.</p></div>
       }>
         <div class="topology-canvas" style={{ width: `${layout().width}px`, height: `${layout().height}px`,
           transform: `translate(${placement().x}px, ${placement().y}px) scale(${placement().scale})` }}>
-          <MapRoutes routes={layout().routes} selectedId={props.selection?.kind === "lane" ? props.selection.id : undefined} onSelect={selectRoad} />
+          <MapRoutes routes={layout().routes} dense={layout().dense} selection={props.selection} onSelect={props.onSelect} />
           <div class="node-bank" role="group" aria-label="Domestic servers"
             style={{ "--bank-x": `${layout().domesticLabel.x}px`, "--bank-y": `${layout().domesticLabel.y}px` }}>
             <h3>Domestic <small>{layout().domestic.length}</small></h3>
@@ -154,7 +154,7 @@ export function TopologyMap(props: {
       </Show>
     </div>
     <div class="map-tools">
-      <MapLegend unmapped={layout().unmapped} />
+      <MapLegend unmapped={layout().unmapped} dense={layout().dense} />
       <MapControls rotated={rotated()} fitted={isFitted()} scale={camera.view().scale} renderedScale={placement().scale}
         onRotate={() => { rotate(); reset(); }} onFit={() => { if (!fitted() || isFitted()) toggleFit(); reset(); }} onZoom={camera.zoom} />
     </div>

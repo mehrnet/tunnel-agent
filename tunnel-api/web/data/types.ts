@@ -97,5 +97,6 @@ export interface ClusterResponse {
 
 export type Selection =
   | { kind: "lane"; id: string }
+  | { kind: "bundle"; id: string }
   | { kind: "node"; id: string }
   | undefined;

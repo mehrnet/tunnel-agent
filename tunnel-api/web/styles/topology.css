@@ -53,9 +53,9 @@
 .map-node__metrics em { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-style: normal; }
 .map-node__metrics em svg { width: 10px; height: 10px; }
 .map-node__metrics b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-[data-layout="portrait"] .map-node { width: 152px; padding-inline: 7px; }
-[data-layout="portrait"] .map-node__metrics em svg { display: none; }
-[data-layout="portrait"] .map-node__metrics > span { padding-inline: 2px; }
+[data-layout="stacked"] .map-node { width: 152px; padding-inline: 7px; }
+[data-layout="stacked"] .map-node__metrics em svg { display: none; }
+[data-layout="stacked"] .map-node__metrics > span { padding-inline: 2px; }
 
 .map-empty { position: relative; align-content: center; justify-items: center; display: grid; height: 100%; gap: 8px; padding: 14px; color: var(--muted); text-align: center; }
 .map-empty svg { width: 30px; height: 30px; color: var(--brand); }
