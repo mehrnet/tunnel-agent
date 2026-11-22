@@ -71,7 +71,9 @@
 .detail-status--active { color: var(--indigo); }
 .detail-status--degraded { color: var(--danger); }
 
-.host-readout, .probe-panel { margin-top: 20px; }
+.host-readout, .network-readout, .probe-panel { margin-top: 20px; }
+.network-readout h3 { font-size: 1rem; line-height: 1.2; }
+.network-readout > p { margin-top: 8px; color: var(--muted); font-size: 0.78rem; }
 .host-readout header, .probe-panel__heading, .probe-report__head, .probe-report__foot {
   display: flex;
   align-items: center;

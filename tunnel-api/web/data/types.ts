@@ -1,3 +1,5 @@
+import type { IpMetadata } from "../../src/ip-metadata";
+
 type NodeClass = "domestic" | "foreign";
 type EnrollmentStatus = "pending" | "enrolled" | "revoked";
 type LaneState = "healthy" | "degraded" | "unknown";
@@ -16,6 +18,7 @@ export interface ClusterNode {
   id: string;
   name: string;
   address: string | null;
+  ip_metadata?: IpMetadata | null;
   node_class: NodeClass;
   status: EnrollmentStatus;
   last_heartbeat_at: number | null;

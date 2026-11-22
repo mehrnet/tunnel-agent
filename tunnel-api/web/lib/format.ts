@@ -12,6 +12,14 @@ export function formatPercent(value: number): string {
   return `${formatNumber(value)}%`;
 }
 
+export function countryName(code: string): string {
+  return typeof Intl.DisplayNames === "function" ? new Intl.DisplayNames("en", { type: "region" }).of(code) ?? code : code;
+}
+
+export function countryFlag(code: string): string {
+  return /^[A-Z]{2}$/.test(code) ? String.fromCodePoint(...Array.from(code, (letter) => letter.charCodeAt(0) + 127397)) : "";
+}
+
 export function formatBytes(value: number): string {
   const units = ["B", "KB", "MB", "GB"];
   const index = Math.min(Math.floor(Math.log(Math.max(value, 1)) / Math.log(1024)), units.length - 1);

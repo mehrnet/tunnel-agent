@@ -18,6 +18,7 @@ import { handleWebTunnel } from "./web-tunnels";
 import { handleWebIngress } from "./web-ingress";
 import { handleWebProbes } from "./web-probes";
 import { handleNodeLifecycle } from "./lifecycle";
+import { refreshIpMetadata } from "./ip-metadata-refresh";
 
 function clusterAction(request: Request, env: Env, pathname: string) {
   const path = pathname.match(/^\/api\/v1\/web\/clusters\/([0-9a-f-]{36})\/(release-track|public-ingress|probes|tunnels)(?:\/([0-9a-f-]{36}))?$/);
@@ -71,6 +72,9 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext): Pro
 }
 
 export default {
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    await refreshIpMetadata(env);
+  },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (new URL(request.url).pathname.startsWith("/api/")) {
       const response = await handleApi(request, env, ctx);

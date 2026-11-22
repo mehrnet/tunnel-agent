@@ -100,6 +100,7 @@ jobs:
           tag="api-${GITHUB_SHA:0:12}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           npm exec -- wrangler versions upload --keep-vars --tag "$tag"
           npm exec -- wrangler versions deploy --version-tag "$tag" --yes
+          npm exec -- wrangler triggers deploy
       - name: Verify API and dashboard
         if: steps.head.outputs.deploy == 'true'
         shell: bash

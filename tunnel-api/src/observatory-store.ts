@@ -1,6 +1,7 @@
 import type { Env, NodeRow } from "./models";
 
 export interface ObservatoryNode extends NodeRow {
+  ip_metadata_json: string | null;
   cpu_milli_percent: number | null;
   memory_milli_percent: number | null;
   load_1_milli: number | null;
@@ -29,7 +30,7 @@ export interface LaneMetricRow {
 
 export async function observatoryNodes(env: Env, ownerId: string, clusterId: string): Promise<ObservatoryNode[]> {
   const rows = await env.DB.prepare(
-    `SELECT n.id, n.name, n.node_class, n.address, n.status,
+    `SELECT n.id, n.name, n.node_class, n.address, n.status, m.details_json AS ip_metadata_json,
             CASE WHEN n.node_class = 'foreign' THEN t.sampled_at ELSE h.observed_at END AS last_heartbeat_at,
             CASE WHEN n.node_class = 'foreign' THEN t.reporter_node_id ELSE h.observer_node_id END AS heartbeat_reporter_id,
             t.cpu_milli_percent, t.memory_milli_percent, t.load_1_milli, t.rx_bytes_per_sec,
@@ -38,6 +39,7 @@ export async function observatoryNodes(env: Env, ownerId: string, clusterId: str
        JOIN clusters c ON c.id = cn.cluster_id
        LEFT JOIN node_heartbeats h ON h.node_id = n.id
        LEFT JOIN node_telemetry t ON t.node_id = n.id
+       LEFT JOIN ip_metadata m ON m.address = n.address
       WHERE c.owner_id = ? AND c.id = ? ORDER BY n.node_class DESC, n.name`,
   ).bind(ownerId, clusterId).all<ObservatoryNode>();
   return rows.results;

@@ -41,9 +41,10 @@
 .map-node__topline svg { width: 14px; height: 14px; }
 .map-node__topline b { display: flex; align-items: center; gap: 5px; color: var(--unknown); font: 500 10px/1 var(--mono); }
 .map-node__topline b::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.map-node > strong { margin-top: 2px; font: 700 19px/1 var(--display); }
+.map-node__name { display: flex; align-items: center; gap: 5px; margin-top: 2px; font: 700 19px/1 var(--display); }
+.map-node__flag { flex: none; font: 400 14px/1 "Apple Color Emoji", "Noto Color Emoji", "Segoe UI Emoji", sans-serif; }
 .map-node > code { margin-top: 3px; color: var(--text-soft); font: 400 11px/1.15 var(--mono); }
-.map-node > :is(strong, code) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-node__name > span:last-child, .map-node > code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-node__heartbeat { margin-top: 4px; color: var(--muted); font-size: 10px; }
 .map-node__missing { margin-top: 7px; padding-top: 8px; border-top: 1px dashed var(--edge); color: var(--muted); font: 400 10px var(--mono); }
 .map-node__metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 5px -2px 0; border: 1px solid var(--edge); background: var(--surface-soft); }

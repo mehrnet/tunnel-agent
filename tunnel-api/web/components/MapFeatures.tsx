@@ -1,6 +1,6 @@
 import { Index, Show, createMemo, createSignal, createUniqueId } from "solid-js";
 import type { Selection } from "../data/types";
-import { formatBytes, formatMoment, formatNumber, formatPercent, formatProbe, formatRate, laneStatus } from "../lib/format";
+import { countryFlag, countryName, formatBytes, formatMoment, formatNumber, formatPercent, formatProbe, formatRate, laneStatus } from "../lib/format";
 import type { MappedLane, MappedNode } from "../lib/topology-layout";
 import { laneHealth, listenerLabel, nodeStatus, routeKind } from "../lib/workbench-status";
 import { StatIcon } from "./StatIcon";
@@ -16,7 +16,12 @@ export function MapNode(props: { item: MappedNode; selected: boolean; onSelect: 
   return <button class="map-node" type="button" aria-pressed={props.selected}
     style={{ left: `${props.item.x}px`, top: `${props.item.y}px` }} onClick={() => props.onSelect(node().id)}>
     <span class="map-node__topline"><WorkbenchIcon name="server" /><b data-status={status()}>{status()}</b></span>
-    <strong title={node().name}>{node().name}</strong>
+    <strong class="map-node__name">
+      <Show when={node().ip_metadata?.country_code}>{(code) =>
+        <span class="map-node__flag" role="img" aria-label={countryName(code())} title={countryName(code())}>{countryFlag(code())}</span>
+      }</Show>
+      <span title={node().name}>{node().name}</span>
+    </strong>
     <code title={node().address ?? undefined}>{node().address ?? "No address"}</code>
     <span class="map-node__heartbeat">Heartbeat: {formatMoment(node().last_heartbeat_at)}</span>
     <Show when={node().telemetry} fallback={<span class="map-node__missing">No host telemetry</span>}>

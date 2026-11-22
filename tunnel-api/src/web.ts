@@ -51,6 +51,7 @@ function toNode(node: Awaited<ReturnType<typeof observatoryNodes>>[number], hear
   return {
     id: node.id, name: node.name, address: node.address, node_class: node.node_class,
     status: node.status,
+    ip_metadata: node.ip_metadata_json ? JSON.parse(node.ip_metadata_json) : null,
     last_heartbeat_at: node.last_heartbeat_at,
     heartbeat_expires_at: heartbeatExpiry,
     telemetry: !reported ? null : {

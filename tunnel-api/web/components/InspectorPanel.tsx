@@ -1,7 +1,7 @@
 import { For, Show, createSignal } from "solid-js";
 import { postOwner } from "../api/client";
 import type { ClusterNode, ClusterResponse, Selection, TunnelLane } from "../data/types";
-import { formatBytes, formatMoment, formatNumber, formatPercent, formatProbe, formatRate, laneState, laneStatus, probeLabel } from "../lib/format";
+import { countryName, formatBytes, formatMoment, formatNumber, formatPercent, formatProbe, formatRate, laneState, laneStatus, probeLabel } from "../lib/format";
 import { nodeStatus } from "../lib/workbench-status";
 import { StatIcon } from "./StatIcon";
 import { BootstrapField } from "./BootstrapField";
@@ -100,6 +100,28 @@ function HostReadout(props: { node: ClusterNode }) {
   </section>;
 }
 
+function NetworkInspection(props: { node: ClusterNode }) {
+  return <section class="network-readout" aria-label="IP information">
+    <h3>IP information</h3>
+    <Show when={props.node.ip_metadata} fallback={<p>No IP information available for this address.</p>}>
+      {(ip) => <div class="detail-list">
+        <Show when={ip().country_code}>{(code) =>
+          <DetailRow label="Country" value={`${countryName(code())} (${code()})`} />}
+        </Show>
+        <Show when={[ip().city, ip().region].filter(Boolean).join(", ")}>{(location) =>
+          <DetailRow label="Location" value={location()} />}
+        </Show>
+        <Show when={ip().prefix}>{(prefix) => <DetailRow label="BGP prefix" value={prefix()} mono />}</Show>
+        <For each={ip().origins}>{(origin) =>
+          <DetailRow label="Origin ASN" value={[origin.asn, origin.name, origin.organization].filter(Boolean).join(" / ")} mono />}
+        </For>
+        <Show when={ip().registry}>{(registry) => <DetailRow label="Registry" value={registry().toUpperCase()} />}</Show>
+        <DetailRow label="MehrBGP lookup" value={formatMoment(ip().checked_at)} />
+      </div>}
+    </Show>
+  </section>;
+}
+
 function NodeInspection(props: { node: ClusterNode }) {
   const state = () => serverStatus(props.node);
   return <>
@@ -109,6 +131,7 @@ function NodeInspection(props: { node: ClusterNode }) {
       <DetailRow label="Heartbeat" value={formatMoment(props.node.last_heartbeat_at)} />
       <DetailRow label="Enrollment" value={enrollmentLabel[props.node.status]} />
     </div>
+    <NetworkInspection node={props.node} />
     <HostReadout node={props.node} />
   </>;
 }

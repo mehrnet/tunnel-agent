@@ -5,6 +5,7 @@
   "account_id": "94eee55a09ab74b34c825f704aa6b4cf",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-11-13",
+  "triggers": { "crons": ["*/5 * * * *"] },
   "assets": {
     "directory": "./web-dist",
     "base_path": "/web",
