@@ -9,6 +9,25 @@ ROOT="${TUNNEL_AGENT_ROOT:-/opt/tunnel-agent}"
 ETC_DIR="${TUNNEL_AGENT_ETC_DIR:-/etc/tunnel-agent}"
 STATE_DIR="${TUNNEL_AGENT_STATE_DIR:-/opt/tunnel-agent/state}"
 SERVICE_NAME="${TUNNEL_AGENT_SERVICE_NAME:-tunnel-agent}"
+INSTANCE="${TUNNEL_AGENT_INSTANCE:-}"
+AGENT_ROOT=$ROOT
+AGENT_ETC=$ETC_DIR
+AGENT_STATE=$STATE_DIR
+INSTANCE_MOUNTS=
+if [ -n "$INSTANCE" ]; then
+  case "$INSTANCE" in
+    default|*[!a-z0-9-]*|-*|*-) echo "invalid tunnel-agent instance name" >&2; exit 1 ;;
+  esac
+  if [ "${#INSTANCE}" -gt 40 ] || [ -n "${TUNNEL_AGENT_ROOT:-}${TUNNEL_AGENT_ETC_DIR:-}${TUNNEL_AGENT_STATE_DIR:-}${TUNNEL_AGENT_SERVICE_NAME:-}" ]; then
+    echo "instance mode cannot use custom path or service overrides" >&2
+    exit 1
+  fi
+  ROOT="/opt/tunnel-agent-instances/$INSTANCE"
+  ETC_DIR="/etc/tunnel-agent-instances/$INSTANCE"
+  STATE_DIR="$ROOT/state"
+  SERVICE_NAME="tunnel-agent@$INSTANCE"
+  INSTANCE_MOUNTS="BindPaths=$ROOT:$AGENT_ROOT $ETC_DIR:$AGENT_ETC"
+fi
 CAPSULE_PUBLIC_KEY='59O+lw4EIergZadHvVPK4RW688eIfIupFEBf0cdcTkc='
 if [ "$(id -u)" -ne 0 ]; then
   echo "run the bootstrap as root (for example: curl ... | sudo sh)" >&2
@@ -294,7 +313,7 @@ else
   bundle_version=$(read_env_value TUNNEL_AGENT_BUNDLE_VERSION "$bootstrap_response")
   bundle_sha256=$(read_env_value TUNNEL_AGENT_BUNDLE_SHA256 "$bootstrap_response")
   bundle_urls=$(read_env_value TUNNEL_AGENT_BUNDLE_URLS "$bootstrap_response")
-  agent_arguments="--api-file ${ETC_DIR}/api-url --node-id-file ${ETC_DIR}/node-id --node-token-file ${ETC_DIR}/node-token"
+  agent_arguments="--api-file ${AGENT_ETC}/api-url --node-id-file ${AGENT_ETC}/node-id --node-token-file ${AGENT_ETC}/node-token"
 fi
 
 case "$bundle_version" in
@@ -369,7 +388,7 @@ if [ -e "$release_dir" ]; then
 else
   mv "$bundle_dir" "$release_dir"
 fi
-ln -s "$release_dir" "$ROOT/current.next"
+ln -s "releases/$bundle_version" "$ROOT/current.next"
 mv -Tf "$ROOT/current.next" "$ROOT/current"
 
 umask 077
@@ -402,12 +421,13 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStartPre=${ROOT}/current/bin/tunnel-agent validate --config ${ETC_DIR}/manifest.json --state-dir ${STATE_DIR}
-ExecStart=${ROOT}/current/bin/tunnel-agent agent --config ${ETC_DIR}/manifest.json --state-dir ${STATE_DIR} ${agent_arguments}
+ExecStartPre=${AGENT_ROOT}/current/bin/tunnel-agent validate --config ${AGENT_ETC}/manifest.json --state-dir ${AGENT_STATE}
+ExecStart=${AGENT_ROOT}/current/bin/tunnel-agent agent --config ${AGENT_ETC}/manifest.json --state-dir ${AGENT_STATE} ${agent_arguments}
 Restart=always
 RestartSec=5
 PrivateTmp=true
-ReadWritePaths=${ROOT} ${ETC_DIR}
+ReadWritePaths=${AGENT_ROOT} ${AGENT_ETC}
+${INSTANCE_MOUNTS}
 
 [Install]
 WantedBy=multi-user.target

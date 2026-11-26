@@ -348,11 +348,23 @@ fn verify_installed_release(
 }
 
 pub(crate) fn activate_release(root: &Path, release: &Path) -> Result<(), String> {
+    let target = release
+        .strip_prefix(root)
+        .ok()
+        .and_then(|path| path.strip_prefix("releases").ok())
+        .filter(|path| {
+            let mut parts = path.components();
+            matches!(parts.next(), Some(std::path::Component::Normal(_))) && parts.next().is_none()
+        })
+        .map(|version| Path::new("releases").join(version))
+        .ok_or_else(|| {
+            "release must be directly inside the bundle releases directory".to_owned()
+        })?;
     let next = root.join("current.next");
     let current = root.join("current");
     let _ = fs::remove_file(&next);
     #[cfg(unix)]
-    std::os::unix::fs::symlink(release, &next)
+    std::os::unix::fs::symlink(target, &next)
         .map_err(|error| format!("cannot create next release symlink: {error}"))?;
     #[cfg(not(unix))]
     return Err("seed activation requires a Unix host".to_owned());
@@ -361,4 +373,34 @@ pub(crate) fn activate_release(root: &Path, release: &Path) -> Result<(), String
 
 fn is_current_release(root: &Path, release: &Path) -> bool {
     fs::canonicalize(root.join("current")).ok() == fs::canonicalize(release).ok()
+}
+
+#[cfg(all(test, unix))]
+mod activation_tests {
+    use super::*;
+
+    #[test]
+    fn activation_is_relative_and_leaves_other_instance_untouched() {
+        let base = std::env::temp_dir().join(crate::release::unique_suffix().unwrap());
+        let stable = base.join("stable");
+        let canary = base.join("canary");
+        let stable_release = stable.join("releases/v0.5.8");
+        let old_canary = canary.join("releases/v0.5.9");
+        let new_canary = canary.join("releases/v0.6.0");
+        for dir in [&stable_release, &old_canary, &new_canary] {
+            fs::create_dir_all(dir).unwrap();
+        }
+        activate_release(&stable, &stable_release).unwrap();
+        activate_release(&canary, &old_canary).unwrap();
+        activate_release(&canary, &new_canary).unwrap();
+        assert_eq!(
+            fs::read_link(canary.join("current")).unwrap(),
+            Path::new("releases/v0.6.0")
+        );
+        assert!(is_current_release(&stable, &stable_release));
+        assert!(is_current_release(&canary, &new_canary));
+        assert!(activate_release(&canary, &stable_release).is_err());
+        assert!(is_current_release(&canary, &new_canary));
+        fs::remove_dir_all(base).unwrap();
+    }
 }
