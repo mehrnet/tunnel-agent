@@ -209,22 +209,26 @@ fn compiled_plan(config: &Path, state_dir: &Path) -> Result<CompiledPlan, String
     manifest::load_config(config).and_then(|config| manifest::compile(&config, state_dir))
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> ExitCode {
-    execute(Cli::parse().command).await
+fn main() -> ExitCode {
+    match Cli::parse().command {
+        // Blocking reqwest can exhaust the current-thread runtime's cooperative budget.
+        CommandKind::PublicIngressWorker { config } => ingress::run(&config).map_or_else(
+            |error| failure("public ingress worker failed", error),
+            |()| ExitCode::SUCCESS,
+        ),
+        command => execute_async(command),
+    }
 }
 
-async fn execute(command: CommandKind) -> ExitCode {
+#[tokio::main(flavor = "current_thread")]
+async fn execute_async(command: CommandKind) -> ExitCode {
     match command {
         CommandKind::ProbeJobWorker { config, state } => probe_job::run(&config, &state)
             .map_or_else(
                 |error| failure("probe job worker failed", error),
                 |()| ExitCode::SUCCESS,
             ),
-        CommandKind::PublicIngressWorker { config } => ingress::run(&config).map_or_else(
-            |error| failure("public ingress worker failed", error),
-            |()| ExitCode::SUCCESS,
-        ),
+        CommandKind::PublicIngressWorker { .. } => unreachable!("dispatched synchronously"),
         CommandKind::HpnServerWorker { binary, config } => {
             hpn_server_worker::run(&binary, &config).await.map_or_else(
                 |error| failure("HPNSSH worker failed", error),

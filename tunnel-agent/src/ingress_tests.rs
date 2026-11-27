@@ -2,6 +2,18 @@ use super::*;
 use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStdin, ChildStdout};
 
+#[test]
+fn blocking_ingress_cannot_start_on_the_tokio_scheduler() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    assert_eq!(
+        run(Path::new("/unused")).unwrap_err(),
+        "public ingress worker must run outside the Tokio runtime"
+    );
+}
+
 fn route() -> PublicPort {
     PublicPort {
         address: Ipv4Addr::new(192, 0, 2, 1),

@@ -149,6 +149,9 @@ pub(crate) fn compile(
 }
 
 pub(crate) fn run(config: &Path) -> Result<(), String> {
+    if tokio::runtime::Handle::try_current().is_ok() {
+        return Err("public ingress worker must run outside the Tokio runtime".to_owned());
+    }
     let routes: Vec<PublicPort> =
         serde_json::from_slice(&std::fs::read(config).map_err(|error| error.to_string())?)
             .map_err(|error| error.to_string())?;
