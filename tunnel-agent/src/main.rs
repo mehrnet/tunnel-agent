@@ -212,10 +212,7 @@ fn compiled_plan(config: &Path, state_dir: &Path) -> Result<CompiledPlan, String
 fn main() -> ExitCode {
     match Cli::parse().command {
         // Blocking reqwest can exhaust the current-thread runtime's cooperative budget.
-        CommandKind::PublicIngressWorker { config } => ingress::run(&config).map_or_else(
-            |error| failure("public ingress worker failed", error),
-            |()| ExitCode::SUCCESS,
-        ),
+        CommandKind::PublicIngressWorker { config } => ingress::run_cli(&config),
         command => execute_async(command),
     }
 }

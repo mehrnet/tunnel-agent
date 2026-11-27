@@ -148,7 +148,14 @@ pub(crate) fn compile(
     Ok(())
 }
 
-pub(crate) fn run(config: &Path) -> Result<(), String> {
+pub(crate) fn run_cli(config: &Path) -> std::process::ExitCode {
+    run(config).map_or_else(
+        |error| crate::failure("public ingress worker failed", error),
+        |()| std::process::ExitCode::SUCCESS,
+    )
+}
+
+fn run(config: &Path) -> Result<(), String> {
     if tokio::runtime::Handle::try_current().is_ok() {
         return Err("public ingress worker must run outside the Tokio runtime".to_owned());
     }
